@@ -76,22 +76,22 @@ export function getEffectiveActiveModel(): ModelConfig | null {
 
   const models = config.get('registeredModels');
   if (config.get('poktToken')) {
-    const c = models.find(m => m.provider === 'controller');
+    const c = models.find((m: ModelConfig) => m.provider === 'controller');
     if (c) return c;
   }
   if (config.get('openrouterToken')) {
-    const o = models.find(m => m.provider === 'openrouter');
+    const o = models.find((m: ModelConfig) => m.provider === 'openrouter');
     if (o) return o;
   }
   if (config.get('geminiApiKey')) {
-    const g = models.find(m => m.provider === 'gemini');
+    const g = models.find((m: ModelConfig) => m.provider === 'gemini');
     if (g) return g;
   }
   if (config.get('ollamaCloudApiKey')) {
-    const oc = models.find(m => m.provider === 'ollama-cloud');
+    const oc = models.find((m: ModelConfig) => m.provider === 'ollama-cloud');
     if (oc) return oc;
   }
-  const ollama = models.find(m => m.provider === 'ollama');
+  const ollama = models.find((m: ModelConfig) => m.provider === 'ollama');
   if (ollama) return ollama;
 
   return models[0] ?? null;

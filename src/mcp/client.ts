@@ -6,7 +6,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { createRequire } from 'module';
 import type { McpServerConfig } from '../config.js';
-import type OpenAI from 'openai';
+import type { ChatCompletionTool } from 'openai/resources/chat/completions/completions.js';
 
 const require = createRequire(import.meta.url);
 const sdkPath = path.dirname(require.resolve('@modelcontextprotocol/sdk/package.json'));
@@ -38,14 +38,14 @@ let sessions: McpClientSession[] = [];
 /**
  * Converte tool MCP para formato OpenAI ChatCompletionTool.
  */
-export function mcpToolToOpenAI(t: McpToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
+export function mcpToolToOpenAI(t: McpToolDef): ChatCompletionTool {
   const params = t.inputSchema?.type === 'object' ? t.inputSchema : { type: 'object' as const, properties: t.inputSchema ?? {} };
   return {
     type: 'function',
     function: {
       name: t.exposedName,
       description: t.description,
-      parameters: params as OpenAI.Chat.Completions.ChatCompletionTool['function']['parameters'],
+      parameters: params as ChatCompletionTool['function']['parameters'],
     },
   };
 }
@@ -68,7 +68,7 @@ export async function connectMcpServer(serverConfig: McpServerConfig): Promise<M
       env: process.env as Record<string, string>,
     });
 
-    const client = new Client({ name: 'pokt-cli', version: '1.0.0' });
+    const client = new Client({ name: 'pokt-cli', version: '1.0.1' });
     await client.connect(transport);
 
     const list = await client.listTools();
@@ -109,8 +109,8 @@ export async function disconnectAllMcp(): Promise<void> {
 /**
  * Retorna todas as tools MCP de todas as sessões ativas em formato OpenAI.
  */
-export function getAllMcpToolsOpenAI(): OpenAI.Chat.Completions.ChatCompletionTool[] {
-  const out: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
+export function getAllMcpToolsOpenAI(): ChatCompletionTool[] {
+  const out: ChatCompletionTool[] = [];
   for (const s of sessions) {
     for (const t of s.tools) {
       out.push(mcpToolToOpenAI(t));

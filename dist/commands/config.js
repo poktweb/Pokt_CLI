@@ -66,7 +66,7 @@ export const configCommand = {
             config.set('poktToken', strValue);
             const controllerModel = { provider: 'controller', id: 'default' };
             const models = config.get('registeredModels');
-            if (!models.some(m => m.provider === 'controller' && m.id === 'default')) {
+            if (!models.some((m) => m.provider === 'controller' && m.id === 'default')) {
                 config.set('registeredModels', [controllerModel, ...models]);
             }
             config.set('activeModel', controllerModel);

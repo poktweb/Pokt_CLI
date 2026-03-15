@@ -6,6 +6,8 @@ import { modelsCommand } from '../commands/models.js';
 import { chatCommand } from '../commands/chat.js';
 import { providerCommand } from '../commands/provider.js';
 import { mcpCommand } from '../commands/mcp.js';
+import { updateCommand } from '../commands/update.js';
+import { uninstallCommand } from '../commands/uninstall.js';
 import prompts from 'prompts';
 import chalk from 'chalk';
 import { ui } from '../ui.js';
@@ -23,6 +25,8 @@ if (argv.length === 0) {
     .command(chatCommand)
     .command(providerCommand)
     .command(mcpCommand)
+    .command(updateCommand)
+    .command(uninstallCommand)
     .demandCommand(1, 'You need at least one command before moving on')
     .help()
     .parse();
@@ -51,6 +55,8 @@ async function showMenu() {
       { title: '🏠 Switch API Provider (casa de API)', value: 'provider' },
       { title: '🔌 MCP Servers (tools externos)', value: 'mcp' },
       { title: '⚙️  Configure API Keys / Tokens', value: 'config' },
+      { title: '🔄 Atualizar Pokt CLI', value: 'update' },
+      { title: '🗑️  Remover Pokt CLI', value: 'uninstall' },
       { title: '❌ Exit', value: 'exit' }
     ]
   });
@@ -70,6 +76,12 @@ async function showMenu() {
     await handleProviderMenu();
   } else if (response.action === 'config') {
     await handleConfigMenu();
+  } else if (response.action === 'update') {
+    const { updateCommand } = await import('../commands/update.js');
+    await (updateCommand.handler as Function)({});
+  } else if (response.action === 'uninstall') {
+    const { uninstallCommand } = await import('../commands/uninstall.js');
+    await (uninstallCommand.handler as Function)({});
   } else if (response.action === 'mcp') {
     const { mcpCommand } = await import('../commands/mcp.js');
     await (mcpCommand.handler as Function)({ action: 'list' });
@@ -274,7 +286,7 @@ async function handleProviderMenu() {
   let models = config.get('registeredModels');
   const hasControllerUrl = !!(config.get('controllerBaseUrl'));
   const hasPoktToken = !!(config.get('poktToken'));
-  if ((hasControllerUrl || hasPoktToken) && !models.some(m => m.provider === 'controller')) {
+  if ((hasControllerUrl || hasPoktToken) && !models.some((m: { provider: string }) => m.provider === 'controller')) {
     models = [{ provider: 'controller', id: 'default' }, ...models];
     config.set('registeredModels', models);
   }
@@ -295,7 +307,7 @@ async function handleProviderMenu() {
   const currentActive = getEffectiveActiveModel();
   const model = (currentActive?.provider === response.provider)
     ? currentActive
-    : models.find(m => m.provider === response.provider);
+    : models.find((m: { provider: string }) => m.provider === response.provider);
 
   if (model) {
     config.set('activeModel', model);

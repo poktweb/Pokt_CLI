@@ -1,2 +1,6 @@
-import { CommandModule } from 'yargs';
-export declare const providerCommand: CommandModule;
+import type * as Yargs from 'yargs';
+interface ProviderArgs {
+    provider?: string;
+}
+export declare const providerCommand: Yargs.CommandModule<{}, ProviderArgs>;
+export {};

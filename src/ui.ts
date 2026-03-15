@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 
 /** Logo em estilo chevron com gradiente (azul → rosa → roxo) */
 function logo(): string {

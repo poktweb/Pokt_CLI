@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { config, ModelConfig, getControllerBaseUrl } from '../config.js';
 
-export async function getClient(modelConfig: ModelConfig): Promise<OpenAI> {
+export async function getClient(modelConfig: ModelConfig): Promise<InstanceType<typeof OpenAI>> {
   if (modelConfig.provider === 'controller') {
     const baseUrl = getControllerBaseUrl();
     const token = config.get('poktToken');

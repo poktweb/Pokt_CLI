@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import OpenAI from 'openai';
+import type { ChatCompletionTool } from 'openai/resources/chat/completions/completions.js';
 import chalk from 'chalk';
 import * as diff from 'diff';
 
@@ -48,7 +48,7 @@ function showDiff(filePath: string, oldContent: string, newContent: string) {
         if (prevLines[prevLines.length - 1] === '') prevLines.pop();
         const contextToShow = prevLines.slice(-CONTEXT_LINES);
         const startLine = currentLine - contextToShow.length;
-        contextToShow.forEach((l, idx) => {
+        contextToShow.forEach((l: string, idx: number) => {
           if (linesPrinted >= MAX_DIFF_LINES) return;
           console.log(`${chalk.gray((startLine + idx).toString().padStart(3))}   ${chalk.gray(l)}`);
           linesPrinted++;
@@ -70,7 +70,7 @@ function showDiff(filePath: string, oldContent: string, newContent: string) {
         const nextLines = changes[i+1].value.split('\n');
         if (nextLines[nextLines.length - 1] === '') nextLines.pop();
         const contextToShow = nextLines.slice(0, CONTEXT_LINES);
-        contextToShow.forEach((l, idx) => {
+        contextToShow.forEach((l: string, idx: number) => {
           if (linesPrinted >= MAX_DIFF_LINES) return;
           console.log(`${chalk.gray((currentLine + idx).toString().padStart(3))}   ${chalk.gray(l)}`);
           linesPrinted++;
@@ -89,7 +89,7 @@ function showDiff(filePath: string, oldContent: string, newContent: string) {
   console.log('');
 }
 
-export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+export const tools: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {

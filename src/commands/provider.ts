@@ -1,12 +1,16 @@
-import { CommandModule } from 'yargs';
+import type * as Yargs from 'yargs';
 import { config, ALL_PROVIDERS } from '../config.js';
 import type { Provider } from '../config.js';
 import { ui } from '../ui.js';
 
-export const providerCommand: CommandModule = {
+interface ProviderArgs {
+  provider?: string;
+}
+
+export const providerCommand: Yargs.CommandModule<{}, ProviderArgs> = {
   command: 'provider use <provider>',
   describe: 'Switch API provider (casa de API): controller (Pokt), openrouter, gemini, ollama, ollama-cloud',
-  builder: (yargs) => yargs
+  builder: (yargs: Yargs.Argv) => yargs
     .positional('provider', {
       describe: 'Provider to use as primary',
       type: 'string',
@@ -15,7 +19,7 @@ export const providerCommand: CommandModule = {
   handler: (argv) => {
     const provider = argv.provider as Provider;
     const models = config.get('registeredModels');
-    const model = models.find(m => m.provider === provider);
+    const model = models.find((m: import('../config.js').ModelConfig) => m.provider === provider);
 
     if (!model) {
       if (provider === 'controller') {

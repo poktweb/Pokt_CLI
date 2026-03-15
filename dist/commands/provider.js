@@ -12,7 +12,7 @@ export const providerCommand = {
     handler: (argv) => {
         const provider = argv.provider;
         const models = config.get('registeredModels');
-        const model = models.find(m => m.provider === provider);
+        const model = models.find((m) => m.provider === provider);
         if (!model) {
             if (provider === 'controller') {
                 console.log(ui.error('Controller model not found. Add it with: pokt config set-pokt-token -v <token>'));

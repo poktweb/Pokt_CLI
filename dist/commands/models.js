@@ -28,7 +28,7 @@ export const modelsCommand = {
             const models = config.get('registeredModels');
             const active = getEffectiveActiveModel();
             console.log(chalk.blue('\nRegistered Models:'));
-            models.forEach(m => {
+            models.forEach((m) => {
                 const isActive = active?.id === m.id && active?.provider === m.provider;
                 const label = PROVIDER_LABELS[m.provider] ?? m.provider;
                 console.log(`${isActive ? chalk.green('★') : ' '} [${label}] ${m.id}`);
@@ -51,7 +51,7 @@ export const modelsCommand = {
                 const data = await response.json();
                 const openrouterModels = (data.data || []).map((m) => ({ provider: 'openrouter', id: m.id }));
                 const currentModels = config.get('registeredModels');
-                const otherModels = currentModels.filter(m => m.provider !== 'openrouter');
+                const otherModels = currentModels.filter((m) => m.provider !== 'openrouter');
                 config.set('registeredModels', [...otherModels, ...openrouterModels]);
                 spinner.succeed(ui.success(`Synchronized ${openrouterModels.length} OpenRouter models.`));
             }
@@ -76,7 +76,7 @@ export const modelsCommand = {
                 const names = (data.models || []).map((m) => m.name);
                 const ollamaModels = names.map((name) => ({ provider: 'ollama', id: name }));
                 const currentModels = config.get('registeredModels');
-                const otherModels = currentModels.filter(m => m.provider !== 'ollama');
+                const otherModels = currentModels.filter((m) => m.provider !== 'ollama');
                 config.set('registeredModels', [...otherModels, ...ollamaModels]);
                 spinner.succeed(ui.success(`Synchronized ${ollamaModels.length} Ollama (local) models.`));
             }
@@ -110,7 +110,7 @@ export const modelsCommand = {
                 const names = (data.models || []).map((m) => m.name);
                 const ollamaCloudModels = names.map((name) => ({ provider: 'ollama-cloud', id: name }));
                 const currentModels = config.get('registeredModels');
-                const otherModels = currentModels.filter(m => m.provider !== 'ollama-cloud');
+                const otherModels = currentModels.filter((m) => m.provider !== 'ollama-cloud');
                 config.set('registeredModels', [...otherModels, ...ollamaCloudModels]);
                 spinner.succeed(ui.success(`Synchronized ${ollamaCloudModels.length} Ollama Cloud models.`));
             }
@@ -129,7 +129,7 @@ export const modelsCommand = {
             }
             const p = provider;
             const models = config.get('registeredModels');
-            if (!models.find(m => m.id === id && m.provider === p)) {
+            if (!models.find((m) => m.id === id && m.provider === p)) {
                 models.push({ provider: p, id: id });
                 config.set('registeredModels', models);
                 const label = PROVIDER_LABELS[p];
@@ -143,7 +143,7 @@ export const modelsCommand = {
             if (!id)
                 return console.log(ui.error('Error: --id is required for add-ollama'));
             const models = config.get('registeredModels');
-            if (!models.find(m => m.id === id && m.provider === 'ollama')) {
+            if (!models.find((m) => m.id === id && m.provider === 'ollama')) {
                 models.push({ provider: 'ollama', id: id });
                 config.set('registeredModels', models);
                 console.log(ui.success(`Added Ollama model: ${id}`));
@@ -156,7 +156,7 @@ export const modelsCommand = {
             if (!id)
                 return console.log(ui.error('Error: --id is required for add-ollama-cloud'));
             const models = config.get('registeredModels');
-            if (!models.find(m => m.id === id && m.provider === 'ollama-cloud')) {
+            if (!models.find((m) => m.id === id && m.provider === 'ollama-cloud')) {
                 models.push({ provider: 'ollama-cloud', id: id });
                 config.set('registeredModels', models);
                 console.log(ui.success(`Added Ollama Cloud model: ${id}`));
@@ -169,7 +169,7 @@ export const modelsCommand = {
             if (!id)
                 return console.log(ui.error('Error: --id is required for add-openrouter. Example: pokt models add-openrouter -i google/gemini-2.5-flash'));
             const models = config.get('registeredModels');
-            if (!models.find(m => m.id === id && m.provider === 'openrouter')) {
+            if (!models.find((m) => m.id === id && m.provider === 'openrouter')) {
                 models.push({ provider: 'openrouter', id: id });
                 config.set('registeredModels', models);
                 console.log(ui.success(`Added OpenRouter model: ${id}`));
@@ -182,7 +182,7 @@ export const modelsCommand = {
             if (!id || !provider)
                 return console.log(ui.error('Error: --id and --provider are required for use'));
             const models = config.get('registeredModels');
-            const model = models.find(m => m.id === id && m.provider === provider);
+            const model = models.find((m) => m.id === id && m.provider === provider);
             if (model) {
                 config.set('activeModel', model);
                 console.log(ui.success(`Active model set to [${provider}] ${id}`));

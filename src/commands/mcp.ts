@@ -1,13 +1,22 @@
-import { CommandModule } from 'yargs';
+import type * as Yargs from 'yargs';
 import { config } from '../config.js';
 import type { McpServerConfig } from '../config.js';
 import { ui } from '../ui.js';
 import { connectMcpServer, getAllMcpToolsOpenAI, disconnectAllMcp } from '../mcp/client.js';
 
-export const mcpCommand: CommandModule = {
+interface McpArgs {
+  action?: string;
+  name?: string;
+  type?: string;
+  command?: string;
+  args?: string;
+  url?: string;
+}
+
+export const mcpCommand: Yargs.CommandModule<{}, McpArgs> = {
   command: 'mcp [action]',
   describe: 'Manage MCP (Model Context Protocol) servers',
-  builder: (yargs) =>
+  builder: (yargs: Yargs.Argv) =>
     yargs
       .positional('action', {
         describe: 'Action: list, add, remove, test',

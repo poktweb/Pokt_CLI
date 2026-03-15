@@ -1,3 +1,3 @@
 import OpenAI from 'openai';
 import { ModelConfig } from '../config.js';
-export declare function getClient(modelConfig: ModelConfig): Promise<OpenAI>;
+export declare function getClient(modelConfig: ModelConfig): Promise<InstanceType<typeof OpenAI>>;

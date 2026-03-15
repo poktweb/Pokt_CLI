@@ -1,12 +1,18 @@
-import { CommandModule } from 'yargs';
+import type * as Yargs from 'yargs';
 import { config, getControllerBaseUrl } from '../config.js';
+import type { ModelConfig } from '../config.js';
 import chalk from 'chalk';
 import { ui } from '../ui.js';
 
-export const configCommand: CommandModule = {
+interface ConfigArgs {
+  action?: string;
+  value?: string | string[];
+}
+
+export const configCommand: Yargs.CommandModule<{}, ConfigArgs> = {
   command: 'config <action>',
   describe: 'Configure Pokt CLI settings',
-  builder: (yargs) => yargs
+  builder: (yargs: Yargs.Argv) => yargs
     .positional('action', {
       describe: 'Action to perform',
       type: 'string',
@@ -63,7 +69,7 @@ export const configCommand: CommandModule = {
       config.set('poktToken', strValue);
       const controllerModel = { provider: 'controller' as const, id: 'default' };
       const models = config.get('registeredModels');
-      if (!models.some(m => m.provider === 'controller' && m.id === 'default')) {
+      if (!models.some((m: ModelConfig) => m.provider === 'controller' && m.id === 'default')) {
         config.set('registeredModels', [controllerModel, ...models]);
       }
       config.set('activeModel', controllerModel);

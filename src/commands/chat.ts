@@ -1,10 +1,10 @@
-import { CommandModule } from 'yargs';
+import type * as Yargs from 'yargs';
 import { config, getEffectiveActiveModel } from '../config.js';
 import chalk from 'chalk';
 import { startChatLoop } from '../chat/loop.js';
 import { ui } from '../ui.js';
 
-export const chatCommand: CommandModule = {
+export const chatCommand: Yargs.CommandModule = {
   command: 'chat',
   describe: 'Start a Vibe Coding chat session',
   handler: async (argv: unknown) => {

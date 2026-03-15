@@ -1,5 +1,5 @@
 import type { McpServerConfig } from '../config.js';
-import type OpenAI from 'openai';
+import type { ChatCompletionTool } from 'openai/resources/chat/completions/completions.js';
 export interface McpToolDef {
     serverName: string;
     name: string;
@@ -36,7 +36,7 @@ export interface McpClientSession {
 /**
  * Converte tool MCP para formato OpenAI ChatCompletionTool.
  */
-export declare function mcpToolToOpenAI(t: McpToolDef): OpenAI.Chat.Completions.ChatCompletionTool;
+export declare function mcpToolToOpenAI(t: McpToolDef): ChatCompletionTool;
 /**
  * Conecta a um servidor MCP (stdio) e retorna a sessão com tools listados.
  */
@@ -48,7 +48,7 @@ export declare function disconnectAllMcp(): Promise<void>;
 /**
  * Retorna todas as tools MCP de todas as sessões ativas em formato OpenAI.
  */
-export declare function getAllMcpToolsOpenAI(): OpenAI.Chat.Completions.ChatCompletionTool[];
+export declare function getAllMcpToolsOpenAI(): ChatCompletionTool[];
 /**
  * Executa uma tool pelo nome exposto (mcp_<server>_<tool>). Retorna o resultado em string.
  */

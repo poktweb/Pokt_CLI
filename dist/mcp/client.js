@@ -39,7 +39,7 @@ export async function connectMcpServer(serverConfig) {
             args: serverConfig.args ?? [],
             env: process.env,
         });
-        const client = new Client({ name: 'pokt-cli', version: '1.0.0' });
+        const client = new Client({ name: 'pokt-cli', version: '1.0.1' });
         await client.connect(transport);
         const list = await client.listTools();
         const tools = (list.tools ?? []).map((t) => ({

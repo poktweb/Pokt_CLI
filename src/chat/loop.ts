@@ -14,6 +14,11 @@ import {
   disconnectAllMcp,
 } from '../mcp/client.js';
 import OpenAI from 'openai';
+import type {
+  ChatCompletionTool,
+  ChatCompletionMessageParam,
+  ChatCompletion,
+} from 'openai/resources/chat/completions/completions.js';
 
 const SYSTEM_PROMPT = `You are Pokt CLI, an elite AI Software Engineer.
 Your goal is to help the user build, fix, and maintain software projects with high quality.
@@ -62,12 +67,12 @@ export async function startChatLoop(modelConfig: ModelConfig) {
       console.log(ui.dim(`[MCP] Connected: ${session.serverName} (${session.tools.length} tools)`));
     }
   }
-  const allTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  const allTools: ChatCompletionTool[] = [
     ...tools,
     ...getAllMcpToolsOpenAI(),
   ];
 
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+  const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: SYSTEM_PROMPT }
   ];
 
@@ -109,11 +114,11 @@ const MAX_429_RETRIES = 3;
 const BASE_429_DELAY_MS = 5000;
 
 async function createCompletionWithRetry(
-  client: OpenAI,
+  client: InstanceType<typeof OpenAI>,
   modelId: string,
-  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  toolsList: OpenAI.Chat.Completions.ChatCompletionTool[]
-): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  messages: ChatCompletionMessageParam[],
+  toolsList: ChatCompletionTool[]
+): Promise<ChatCompletion> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
     try {
@@ -138,10 +143,10 @@ async function createCompletionWithRetry(
 }
 
 async function processLLMResponse(
-  client: OpenAI,
+  client: InstanceType<typeof OpenAI>,
   modelId: string,
-  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  toolsList: OpenAI.Chat.Completions.ChatCompletionTool[]
+  messages: ChatCompletionMessageParam[],
+  toolsList: ChatCompletionTool[]
 ) {
   const spinner = ora('Thinking...').start();
 
