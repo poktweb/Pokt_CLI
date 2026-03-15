@@ -9,7 +9,7 @@ export const configCommand: CommandModule = {
     .positional('action', {
       describe: 'Action to perform',
       type: 'string',
-      choices: ['set-openrouter', 'set-ollama', 'set-gemini']
+      choices: ['set-openrouter', 'set-ollama', 'set-gemini', 'set-google-client-id', 'set-google-client-secret']
     })
     .option('value', {
       describe: 'The value to set',
@@ -28,6 +28,12 @@ export const configCommand: CommandModule = {
     } else if (action === 'set-gemini') {
       config.set('geminiApiKey', value as string);
       console.log(chalk.green('✔ Gemini API key saved successfully.'));
+    } else if (action === 'set-google-client-id') {
+      config.set('googleClientId', value as string);
+      console.log(chalk.green('✔ Google Client ID saved successfully.'));
+    } else if (action === 'set-google-client-secret') {
+      config.set('googleClientSecret', value as string);
+      console.log(chalk.green('✔ Google Client Secret saved successfully.'));
     }
   }
 };

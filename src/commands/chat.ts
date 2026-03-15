@@ -18,8 +18,9 @@ export const chatCommand: CommandModule = {
       return;
     }
 
-    if (activeModel.provider === 'gemini' && !config.get('geminiApiKey')) {
-      console.log(chalk.red('Error: Gemini API key not set. Use `pokt config set-gemini --value <key>`'));
+    if (activeModel.provider === 'gemini' && !config.get('geminiApiKey') && !config.get('googleToken')) {
+      console.log(chalk.red('Error: Neither Gemini API key nor Google account connected.'));
+      console.log(chalk.gray('Use `pokt config set-gemini -v <key>` or `pokt auth login-google`'));
       return;
     }
 

@@ -4,6 +4,9 @@ export const config = new Conf({
     defaults: {
         openrouterToken: '',
         geminiApiKey: '',
+        googleToken: null,
+        googleClientId: '',
+        googleClientSecret: '',
         ollamaBaseUrl: 'http://localhost:11434',
         registeredModels: [
             { provider: 'openrouter', id: 'google/gemini-2.0-flash-001' },

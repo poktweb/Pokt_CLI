@@ -7,6 +7,9 @@ export interface ModelConfig {
 interface AppConfig {
     openrouterToken: string;
     geminiApiKey: string;
+    googleToken: any;
+    googleClientId: string;
+    googleClientSecret: string;
     ollamaBaseUrl: string;
     registeredModels: ModelConfig[];
     activeModel: ModelConfig | null;
