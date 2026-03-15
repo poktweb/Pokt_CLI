@@ -15,7 +15,8 @@
   },
   "files": [
     "dist",
-    "package.json"
+    "package.json",
+    "README.md"
   ],
   "keywords": [
     "ai",
@@ -25,8 +26,19 @@
     "openrouter",
     "ollama"
   ],
-  "author": "",
+  "author": "PoktWeb",
   "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PoktWeb/Pokt_CLI.git"
+  },
+  "homepage": "https://github.com/PoktWeb/Pokt_CLI#readme",
+  "bugs": {
+    "url": "https://github.com/PoktWeb/Pokt_CLI/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "chalk": "^5.3.0",
