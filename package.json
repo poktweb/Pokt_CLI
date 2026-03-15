@@ -2,7 +2,7 @@
   "name": "pokt-cli",
   "version": "1.0.0",
   "description": "Vibe Coding AI CLI for OpenRouter and Ollama",
-  "main": "./dist/index.js",
+  "main": "./dist/bin/pokt.js",
   "type": "module",
   "bin": {
     "pokt": "./dist/bin/pokt.js"
@@ -10,8 +10,13 @@
   "scripts": {
     "build": "tsc",
     "start": "node ./dist/bin/pokt.js",
-    "dev": "tsx ./src/bin/pokt.ts"
+    "dev": "tsx ./src/bin/pokt.ts",
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist",
+    "package.json"
+  ],
   "keywords": [
     "ai",
     "cli",
@@ -23,15 +28,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "chalk": "^5.3.0",
     "conf": "^12.0.0",
     "diff": "^8.0.3",
-    "google-auth-library": "^10.6.1",
-    "open": "^11.0.0",
     "openai": "^4.28.4",
     "ora": "^8.0.1",
     "prompts": "^2.4.2",
-    "yargs": "^17.7.2"
+    "yargs": "^17.7.2",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",

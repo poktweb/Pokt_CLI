@@ -1,8 +1,22 @@
 import OpenAI from 'openai';
-import { config } from '../config.js';
-import { GoogleAuth } from 'google-auth-library';
+import { config, getControllerBaseUrl } from '../config.js';
 export async function getClient(modelConfig) {
-    if (modelConfig.provider === 'openrouter') {
+    if (modelConfig.provider === 'controller') {
+        const baseUrl = getControllerBaseUrl();
+        const token = config.get('poktToken');
+        if (!token) {
+            throw new Error('Token Pokt não configurado. No painel gere um token e use: pokt config set-pokt-token -v <token>');
+        }
+        return new OpenAI({
+            baseURL: `${baseUrl}/api/v1`,
+            apiKey: token,
+            defaultHeaders: {
+                'HTTP-Referer': 'https://github.com/pokt-cli',
+                'X-Title': 'Pokt CLI',
+            }
+        });
+    }
+    else if (modelConfig.provider === 'openrouter') {
         return new OpenAI({
             baseURL: 'https://openrouter.ai/api/v1',
             apiKey: config.get('openrouterToken'),
@@ -14,43 +28,29 @@ export async function getClient(modelConfig) {
     }
     else if (modelConfig.provider === 'gemini') {
         const apiKey = config.get('geminiApiKey');
-        const googleToken = config.get('googleToken');
-        if (apiKey) {
-            return new OpenAI({
-                baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-                apiKey: apiKey,
-            });
+        if (!apiKey) {
+            throw new Error('Gemini API key not set. Use: pokt config set-gemini -v <key>');
         }
-        else if (googleToken && googleToken.access_token) {
-            return new OpenAI({
-                baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-                apiKey: googleToken.access_token,
-            });
+        return new OpenAI({
+            baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+            apiKey: apiKey,
+        });
+    }
+    else if (modelConfig.provider === 'ollama-cloud') {
+        const apiKey = config.get('ollamaCloudApiKey');
+        if (!apiKey) {
+            throw new Error('Ollama Cloud API key não configurada. Crie uma em https://ollama.com/settings/keys e use: pokt config set-ollama-cloud -v <key>');
         }
-        else {
-            // Try to use Application Default Credentials (ADC)
-            try {
-                const auth = new GoogleAuth({
-                    scopes: ['https://www.googleapis.com/auth/generative-language']
-                });
-                const client = await auth.getClient();
-                const tokenResponse = await client.getAccessToken();
-                const token = tokenResponse.token;
-                if (token) {
-                    return new OpenAI({
-                        baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-                        apiKey: token,
-                    });
-                }
-            }
-            catch (e) {
-                // ADC failed, fallback to error
-            }
-            throw new Error('No Gemini authentication found (API Key, Google Login, or ADC).');
-        }
+        return new OpenAI({
+            baseURL: 'https://ollama.com/v1',
+            apiKey,
+            defaultHeaders: {
+                Authorization: `Bearer ${apiKey}`,
+            },
+        });
     }
     else {
-        // Ollama
+        // Ollama (local) — não precisa de API key
         return new OpenAI({
             baseURL: `${config.get('ollamaBaseUrl')}/v1`,
             apiKey: 'ollama',

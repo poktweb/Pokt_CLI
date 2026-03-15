@@ -8,59 +8,83 @@ import * as diff from 'diff';
 
 const execAsync = promisify(exec);
 
+/** Máximo de linhas de diff exibidas; além disso mostra resumo para não imprimir arquivo inteiro */
+const MAX_DIFF_LINES = 45;
+
 function showDiff(filePath: string, oldContent: string, newContent: string) {
   const relativePath = path.relative(process.cwd(), filePath);
   console.log(chalk.blue.bold(`\n📝 Edit ${relativePath}:`));
   
   if (!oldContent) {
-    console.log(chalk.green(`  (New file created with ${newContent.split('\n').length} lines)`));
+    const lineCount = newContent.split('\n').length;
+    if (lineCount <= MAX_DIFF_LINES) {
+      newContent.split('\n').forEach((line, idx) => {
+        console.log(`${chalk.gray((idx + 1).toString().padStart(3))} ${chalk.green('+')} ${chalk.green(line)}`);
+      });
+    } else {
+      newContent.split('\n').slice(0, MAX_DIFF_LINES).forEach((line, idx) => {
+        console.log(`${chalk.gray((idx + 1).toString().padStart(3))} ${chalk.green('+')} ${chalk.green(line)}`);
+      });
+      console.log(chalk.gray(`  ... (and ${lineCount - MAX_DIFF_LINES} more lines)`));
+    }
+    console.log('');
     return;
   }
 
   const changes = diff.diffLines(oldContent, newContent);
   const CONTEXT_LINES = 3;
-  
   let currentLine = 1;
+  let linesPrinted = 0;
 
-  for (let i = 0; i < changes.length; i++) {
+  for (let i = 0; i < changes.length && linesPrinted < MAX_DIFF_LINES; i++) {
     const part = changes[i];
     const lines = part.value.split('\n');
     if (lines[lines.length - 1] === '') lines.pop();
 
     if (part.added || part.removed) {
       // Show some context from previous part if it was unchanged
-      if (i > 0 && !changes[i-1].added && !changes[i-1].removed) {
+      if (i > 0 && !changes[i-1].added && !changes[i-1].removed && linesPrinted < MAX_DIFF_LINES) {
         const prevLines = changes[i-1].value.split('\n');
         if (prevLines[prevLines.length - 1] === '') prevLines.pop();
         const contextToShow = prevLines.slice(-CONTEXT_LINES);
         const startLine = currentLine - contextToShow.length;
         contextToShow.forEach((l, idx) => {
+          if (linesPrinted >= MAX_DIFF_LINES) return;
           console.log(`${chalk.gray((startLine + idx).toString().padStart(3))}   ${chalk.gray(l)}`);
+          linesPrinted++;
         });
       }
 
-      // Show the actual change
-      lines.forEach((line) => {
+      // Show the actual change (só até MAX_DIFF_LINES)
+      for (const line of lines) {
+        if (linesPrinted >= MAX_DIFF_LINES) break;
         const lineDisplay = part.added ? chalk.green(line) : chalk.red(line);
         const symbolDisplay = part.added ? chalk.green('+') : chalk.red('-');
         console.log(`${chalk.gray(currentLine.toString().padStart(3))} ${symbolDisplay} ${lineDisplay}`);
         if (!part.removed) currentLine++;
-      });
+        linesPrinted++;
+      }
 
       // Show some context from next part if it is unchanged
-      if (i < changes.length - 1 && !changes[i+1].added && !changes[i+1].removed) {
+      if (i < changes.length - 1 && !changes[i+1].added && !changes[i+1].removed && linesPrinted < MAX_DIFF_LINES) {
         const nextLines = changes[i+1].value.split('\n');
         if (nextLines[nextLines.length - 1] === '') nextLines.pop();
         const contextToShow = nextLines.slice(0, CONTEXT_LINES);
         contextToShow.forEach((l, idx) => {
+          if (linesPrinted >= MAX_DIFF_LINES) return;
           console.log(`${chalk.gray((currentLine + idx).toString().padStart(3))}   ${chalk.gray(l)}`);
+          linesPrinted++;
         });
-        console.log(chalk.gray('  ...'));
+        if (linesPrinted < MAX_DIFF_LINES) console.log(chalk.gray('  ...'));
+        linesPrinted++;
       }
     } else {
-      // Unchanged part, just update the line counter
       currentLine += lines.length;
     }
+  }
+
+  if (linesPrinted >= MAX_DIFF_LINES) {
+    console.log(chalk.gray(`  ... (diff truncated, more changes in file)`));
   }
   console.log('');
 }
