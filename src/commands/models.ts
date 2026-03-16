@@ -31,7 +31,7 @@ export const modelsCommand: Yargs.CommandModule<{}, ModelsArgs> = {
       choices: ['openrouter', 'ollama', 'ollama-cloud', 'gemini', 'controller'],
       alias: 'p'
     }),
-  handler: async (argv) => {
+  handler: async (argv: ModelsArgs) => {
     const { action, id, provider } = argv;
 
     if (action === 'list') {

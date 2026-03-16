@@ -41,7 +41,7 @@ export const chatCommand: Yargs.CommandModule = {
       console.log('');
     }
     console.log(ui.dim('Type "exit" or /quit to end the session.'));
-    console.log(ui.statusBar({ model: `/model ${activeModel.provider} (${activeModel.id})` }));
+    console.log(ui.statusBar({ cwd: process.cwd(), model: `/model ${activeModel.provider} (${activeModel.id})` }));
     console.log('');
     await startChatLoop(activeModel);
   }

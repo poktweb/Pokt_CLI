@@ -16,7 +16,7 @@ export const providerCommand: Yargs.CommandModule<{}, ProviderArgs> = {
       type: 'string',
       choices: [...ALL_PROVIDERS]
     }),
-  handler: (argv) => {
+  handler: (argv: ProviderArgs) => {
     const provider = argv.provider as Provider;
     const models = config.get('registeredModels');
     const model = models.find((m: import('../config.js').ModelConfig) => m.provider === provider);

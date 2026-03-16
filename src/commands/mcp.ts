@@ -28,7 +28,7 @@ export const mcpCommand: Yargs.CommandModule<{}, McpArgs> = {
       .option('command', { describe: 'Command for stdio (e.g. npx)', type: 'string', alias: 'c' })
       .option('args', { describe: 'JSON array of args for stdio (e.g. \'["-y","mcp-server"]\')', type: 'string', alias: 'a' })
       .option('url', { describe: 'URL for http server', type: 'string', alias: 'u' }),
-  handler: async (argv) => {
+  handler: async (argv: McpArgs) => {
     const action = (argv.action as string) || 'list';
     const servers: McpServerConfig[] = config.get('mcpServers') ?? [];
 

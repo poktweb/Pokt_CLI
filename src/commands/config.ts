@@ -23,7 +23,7 @@ export const configCommand: Yargs.CommandModule<{}, ConfigArgs> = {
       type: 'string',
       alias: 'v'
     }),
-  handler: (argv) => {
+  handler: (argv: ConfigArgs) => {
     const { action, value } = argv;
     if (action === 'show') {
       const openrouter = config.get('openrouterToken');
