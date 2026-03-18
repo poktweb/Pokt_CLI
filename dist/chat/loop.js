@@ -1,6 +1,7 @@
 import prompts from 'prompts';
 import ora from 'ora';
 import { ui } from '../ui.js';
+import { runProFlow } from '../commands/pro.js';
 import { config } from '../config.js';
 import { getClient } from './client.js';
 import { tools, executeTool } from './tools.js';
@@ -65,7 +66,7 @@ export async function startChatLoop(modelConfig) {
         console.log('');
         const cwd = process.cwd();
         console.log(ui.dim(`Diretório atual: ${cwd}`));
-        console.log(ui.shortcutsLine('shift+tab to accept edits', '? for shortcuts'));
+        console.log(ui.shortcutsLine('shift+tab to accept edits', '? · /pro (Torne-se Pro)'));
         const response = await prompts({
             type: 'text',
             name: 'input',
@@ -78,6 +79,20 @@ export async function startChatLoop(modelConfig) {
             await disconnectAllMcp();
             console.log(ui.dim('Goodbye!'));
             break;
+        }
+        const trimmed = userInput.trim();
+        const low = trimmed.toLowerCase();
+        if (low === '/pro' || low === '/torne-se-pro' || low === 'torne-se pro') {
+            runProFlow();
+            continue;
+        }
+        if (trimmed === '?') {
+            console.log(ui.dim(`
+Atalhos:
+  ${ui.accent('/pro')} ou ${ui.accent('/torne-se-pro')} — abrir Pokt Pro no navegador (pagamento + chave)
+  exit, ${ui.accent('/quit')} — sair do chat
+`));
+            continue;
         }
         messages.push({ role: 'user', content: userInput });
         // Primeiro o modelo vê o pedido; depois carregamos a estrutura do projeto para ele entender e então criar/editar

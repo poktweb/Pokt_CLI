@@ -2,6 +2,7 @@ import prompts from 'prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import { ui } from '../ui.js';
+import { runProFlow } from '../commands/pro.js';
 import { ModelConfig } from '../config.js';
 import { config } from '../config.js';
 import { getClient } from './client.js';
@@ -85,7 +86,7 @@ export async function startChatLoop(modelConfig: ModelConfig) {
     console.log('');
     const cwd = process.cwd();
     console.log(ui.dim(`Diretório atual: ${cwd}`));
-    console.log(ui.shortcutsLine('shift+tab to accept edits', '? for shortcuts'));
+    console.log(ui.shortcutsLine('shift+tab to accept edits', '? · /pro (Torne-se Pro)'));
     const response = await prompts({
       type: 'text',
       name: 'input',
@@ -99,6 +100,23 @@ export async function startChatLoop(modelConfig: ModelConfig) {
       await disconnectAllMcp();
       console.log(ui.dim('Goodbye!'));
       break;
+    }
+
+    const trimmed = userInput.trim();
+    const low = trimmed.toLowerCase();
+    if (low === '/pro' || low === '/torne-se-pro' || low === 'torne-se pro') {
+      runProFlow();
+      continue;
+    }
+    if (trimmed === '?') {
+      console.log(
+        ui.dim(`
+Atalhos:
+  ${ui.accent('/pro')} ou ${ui.accent('/torne-se-pro')} — abrir Pokt Pro no navegador (pagamento + chave)
+  exit, ${ui.accent('/quit')} — sair do chat
+`)
+      );
+      continue;
     }
 
     messages.push({ role: 'user', content: userInput });

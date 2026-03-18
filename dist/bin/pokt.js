@@ -8,6 +8,7 @@ import { providerCommand } from '../commands/provider.js';
 import { mcpCommand } from '../commands/mcp.js';
 import { updateCommand } from '../commands/update.js';
 import { uninstallCommand } from '../commands/uninstall.js';
+import { proCommand, runProFlow } from '../commands/pro.js';
 import prompts from 'prompts';
 import chalk from 'chalk';
 import { ui } from '../ui.js';
@@ -26,6 +27,7 @@ else {
         .command(mcpCommand)
         .command(updateCommand)
         .command(uninstallCommand)
+        .command(proCommand)
         .demandCommand(1, 'You need at least one command before moving on')
         .help()
         .parse();
@@ -51,6 +53,7 @@ async function showMenu() {
             { title: '🏠 Switch API Provider (casa de API)', value: 'provider' },
             { title: '🔌 MCP Servers (tools externos)', value: 'mcp' },
             { title: '⚙️  Configure API Keys / Tokens', value: 'config' },
+            { title: '⭐ Torne-se Pro (site — pagamento + chave)', value: 'pro' },
             { title: '🔄 Atualizar Pokt CLI', value: 'update' },
             { title: '🗑️  Remover Pokt CLI', value: 'uninstall' },
             { title: '❌ Exit', value: 'exit' }
@@ -74,6 +77,10 @@ async function showMenu() {
     }
     else if (response.action === 'config') {
         await handleConfigMenu();
+    }
+    else if (response.action === 'pro') {
+        runProFlow();
+        return showMenu();
     }
     else if (response.action === 'update') {
         const { updateCommand } = await import('../commands/update.js');

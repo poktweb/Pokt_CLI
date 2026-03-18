@@ -30,6 +30,8 @@ interface AppConfig {
 }
 export declare const config: Conf<AppConfig>;
 export declare const getControllerBaseUrl: () => string;
+/** Página inicial do Pokt Pro (aí tem o botão de assinatura/pagamento). */
+export declare const getProPurchaseUrl: () => string;
 /** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export declare function getEffectiveActiveModel(): ModelConfig | null;
 export {};

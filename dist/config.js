@@ -33,6 +33,8 @@ export const getControllerBaseUrl = () => {
     const url = config.get('controllerBaseUrl') || DEFAULT_CONTROLLER_URL;
     return url.replace(/\/$/, '');
 };
+/** Página inicial do Pokt Pro (aí tem o botão de assinatura/pagamento). */
+export const getProPurchaseUrl = () => getControllerBaseUrl();
 /** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export function getEffectiveActiveModel() {
     const explicit = config.get('activeModel');
