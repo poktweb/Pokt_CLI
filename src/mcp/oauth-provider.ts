@@ -179,6 +179,8 @@ export function defaultMcpOAuthClientMetadata(redirectUrl: string): OAuthClientM
   return {
     client_name: 'Pokt CLI',
     redirect_uris: [redirectUrl],
+    logo_uri: undefined,
+    tos_uri: undefined,
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',
