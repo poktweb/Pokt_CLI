@@ -6,7 +6,7 @@ import { ui } from '../ui.js';
 export const proCommand: Yargs.CommandModule<{}, { url?: boolean }> = {
   command: 'pro',
   aliases: ['Pro'],
-  describe: 'Abre a página inicial do Controller (botão "Torne-se Pro"). Use --url só para imprimir o link.',
+  describe: 'Abre a página de compra de token no Controller (Vercel). Painel/API usam a Railway. Use --url só para imprimir o link.',
   builder: (yargs: Yargs.Argv) =>
     yargs.option('url', {
       type: 'boolean',
@@ -29,7 +29,7 @@ export function runProFlow(printOnlyUrl = false): void {
     console.log(proHomeUrl);
     return;
   }
-  console.log(ui.dim('Pokt Pro — abra o site e clique em "Torne-se Pro" (pagamento + chave imediata).\n'));
+  console.log(ui.dim('Comprar token Pokt — abre o site na Vercel (pagamento). Painel/API: Railway.\n'));
   console.log(ui.accent(proHomeUrl));
   try {
     openBrowser(proHomeUrl);

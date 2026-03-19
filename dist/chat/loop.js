@@ -185,7 +185,7 @@ Comandos do chat:
   ${ui.accent('/chat')} — checkpoints/sessões (list/save/resume/delete/share)
   ${ui.accent('/resume')} — alias de /chat
   ${ui.accent('/copy')} — copia a última resposta do Pokt (Windows: clip)
-  ${ui.accent('/pro')} — abrir Pokt Pro no navegador
+  ${ui.accent('/pro')} — abrir compra de token no navegador (Vercel)
   ${ui.accent('/quit')} ou ${ui.accent('exit')} — sair do chat
 `));
     }
@@ -331,7 +331,7 @@ Comandos do chat:
         if (trimmed === '?') {
             console.log(ui.dim(`
 Atalhos:
-  ${ui.accent('/pro')} ou ${ui.accent('/torne-se-pro')} — abrir Pokt Pro no navegador (pagamento + chave)
+  ${ui.accent('/pro')} ou ${ui.accent('/torne-se-pro')} — comprar token (abre Vercel; painel/API na Railway)
   exit, ${ui.accent('/quit')} — sair do chat
   ${ui.accent('/help')} — ver comandos do chat
 `));

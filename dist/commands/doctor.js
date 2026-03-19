@@ -1,6 +1,6 @@
 import ora from 'ora';
 import { ui } from '../ui.js';
-import { PROVIDER_LABELS, getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaBaseUrl, getOllamaCloudApiKey, getPoktToken, } from '../config.js';
+import { PROVIDER_LABELS, getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaBaseUrl, getOllamaCloudApiKey, getPoktToken, getPoktApiBaseUrl, getProPortalBaseUrl, getTokenPurchaseUrl, } from '../config.js';
 import { getClient } from '../chat/client.js';
 function mask(value) {
     if (!value)
@@ -55,6 +55,11 @@ export const doctorCommand = {
                 return;
             }
             console.log(ui.success(`Credencial OK: ${req.name} = ${mask(req.value)}`));
+            if (active.provider === 'controller') {
+                console.log(ui.dim(`  API Pokt (chat): ${getPoktApiBaseUrl()}`));
+                console.log(ui.dim(`  Painel / serviço: ${getProPortalBaseUrl()}`));
+                console.log(ui.dim(`  Comprar token: ${getTokenPurchaseUrl()}`));
+            }
         }
         else if (active.provider === 'ollama') {
             console.log(ui.success(`Ollama (local) não precisa de chave. Base URL: ${getOllamaBaseUrl()}`));

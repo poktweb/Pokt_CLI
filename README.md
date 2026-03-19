@@ -71,7 +71,10 @@ pokt --help
 - `pokt config set-ollama -v <url>` — URL base do Ollama local.
 - `pokt config set-ollama-cloud -v <key>` — API key Ollama Cloud.
 - `pokt config set-gemini -v <key>` — API key Google Gemini.
-- `pokt config set-pokt-token -v <token>` — Token do controller Pokt.
+- `pokt config set-pokt-token -v <token>` — Token Pokt (gerado no painel na Railway).
+- `pokt config set-pokt-api-url -v <url>` — API com token Pokt (provider `controller`; padrão Railway). O provider **openai** continua em `api.openai.com`.
+- `pokt config set-pro-portal-url -v <url>` — Painel / serviço (padrão Railway).
+- `pokt config set-token-purchase-url -v <url>` — Só a página de **comprar token** (padrão: Controller Vercel).
 - `pokt config clear-openrouter` — Remove o token OpenRouter.
 - `pokt config clear-openai` — Remove a API key OpenAI.
 - `pokt config clear-grok` — Remove a API key Grok (xAI).
@@ -98,6 +101,9 @@ Se preferir não salvar chaves no computador (ou para CI), você pode usar env v
 - `OLLAMA_BASE_URL`
 - `OLLAMA_CLOUD_API_KEY`
 - `POKT_TOKEN`
+- `POKT_API_BASE_URL` — API com token Pokt (Railway por padrão).
+- `POKT_PRO_PORTAL_URL` (ou `POKT_CONTROLLER_PORTAL_URL`) — Painel / serviço (Railway por padrão).
+- `POKT_TOKEN_PURCHASE_URL` — Só checkout / compra de token (Vercel por padrão). Na atualização, URLs antigas `pokt-cli-controller.vercel.app` salvas em API/painel migram automaticamente para a Railway.
 
 ### Provedores (`provider`)
 

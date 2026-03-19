@@ -1,5 +1,5 @@
 import type * as Yargs from 'yargs';
-import { config, getControllerBaseUrl } from '../config.js';
+import { config, getPoktApiBaseUrl, getProPortalBaseUrl, getTokenPurchaseUrl } from '../config.js';
 import type { ModelConfig } from '../config.js';
 import chalk from 'chalk';
 import { ui } from '../ui.js';
@@ -16,7 +16,22 @@ export const configCommand: Yargs.CommandModule<{}, ConfigArgs> = {
     .positional('action', {
       describe: 'Action to perform',
       type: 'string',
-      choices: ['set-openai', 'set-grok', 'set-openrouter', 'set-ollama', 'set-ollama-cloud', 'set-gemini', 'set-pokt-token', 'clear-openrouter', 'clear-openai', 'clear-grok', 'show']
+      choices: [
+        'set-openai',
+        'set-grok',
+        'set-openrouter',
+        'set-ollama',
+        'set-ollama-cloud',
+        'set-gemini',
+        'set-pokt-token',
+        'set-pokt-api-url',
+        'set-pro-portal-url',
+        'set-token-purchase-url',
+        'clear-openrouter',
+        'clear-openai',
+        'clear-grok',
+        'show',
+      ]
     })
     .option('value', {
       describe: 'The value to set',
@@ -40,7 +55,9 @@ export const configCommand: Yargs.CommandModule<{}, ConfigArgs> = {
       console.log(ui.dim('  Gemini API Key:'), gemini ? gemini.slice(0, 8) + '****' : '(not set)');
       console.log(ui.dim('  Ollama Base URL (local):'), ollama || '(not set)');
       console.log(ui.dim('  Ollama Cloud API Key:'), ollamaCloud ? ollamaCloud.slice(0, 8) + '****' : '(not set) — https://ollama.com/settings/keys');
-      console.log(ui.dim('  Controller URL:'), getControllerBaseUrl(), ui.dim('(já configurado)'));
+      console.log(ui.dim('  Pokt API (chat / token):'), getPoktApiBaseUrl());
+      console.log(ui.dim('  Painel / serviço (Railway):'), getProPortalBaseUrl());
+      console.log(ui.dim('  Comprar token (Vercel):'), getTokenPurchaseUrl());
       console.log(ui.dim('  Pokt Token:'), poktToken ? poktToken.slice(0, 10) + '****' : '(not set) — use: pokt config set-pokt-token -v <token>');
       console.log(ui.warn('\nTokens are stored in your user config directory. Do not share it.\n'));
       return;
@@ -60,7 +77,19 @@ export const configCommand: Yargs.CommandModule<{}, ConfigArgs> = {
       console.log(ui.success('Grok (xAI) API key cleared.'));
       return;
     }
-    if (action !== 'set-openai' && action !== 'set-grok' && action !== 'set-openrouter' && action !== 'set-ollama' && action !== 'set-ollama-cloud' && action !== 'set-gemini' && action !== 'set-pokt-token') return;
+    if (
+      action !== 'set-openai' &&
+      action !== 'set-grok' &&
+      action !== 'set-openrouter' &&
+      action !== 'set-ollama' &&
+      action !== 'set-ollama-cloud' &&
+      action !== 'set-gemini' &&
+      action !== 'set-pokt-token' &&
+      action !== 'set-pokt-api-url' &&
+      action !== 'set-pro-portal-url' &&
+      action !== 'set-token-purchase-url'
+    )
+      return;
     const raw = Array.isArray(value) ? value[0] : value;
     const strValue = typeof raw === 'string' ? raw : (raw != null ? String(raw) : '');
     if (strValue === '') {
@@ -93,7 +122,21 @@ export const configCommand: Yargs.CommandModule<{}, ConfigArgs> = {
         config.set('registeredModels', [controllerModel, ...models]);
       }
       config.set('activeModel', controllerModel);
-      console.log(ui.success('Pokt token salvo. Controller é seu provedor principal. Gere tokens em: https://pokt-cli-controller.vercel.app'));
+      const portal = getProPortalBaseUrl();
+      console.log(
+        ui.success(
+          `Pokt token salvo. Provedor Pokt ativo. Gere tokens no painel: ${portal}`
+        )
+      );
+    } else if (action === 'set-pokt-api-url') {
+      config.set('poktApiBaseUrl', strValue.replace(/\/$/, ''));
+      console.log(ui.success(`URL da API Pokt (token Bearer / provider controller) salva: ${strValue.replace(/\/$/, '')}`));
+    } else if (action === 'set-pro-portal-url') {
+      config.set('controllerBaseUrl', strValue.replace(/\/$/, ''));
+      console.log(ui.success(`URL do painel/serviço (Railway) salva: ${strValue.replace(/\/$/, '')}`));
+    } else if (action === 'set-token-purchase-url') {
+      config.set('tokenPurchaseBaseUrl', strValue.replace(/\/$/, ''));
+      console.log(ui.success(`URL de compra de token (checkout) salva: ${strValue.replace(/\/$/, '')}`));
     }
   }
 };

@@ -261,7 +261,7 @@ async function handleConfigMenu() {
 
   if (response.type === 'back') return showMenu();
   if (response.type === 'show') {
-    const { getControllerBaseUrl } = await import('../config.js');
+    const { getPoktApiBaseUrl, getProPortalBaseUrl, getTokenPurchaseUrl } = await import('../config.js');
     const openai = config.get('openaiApiKey');
     const grok = config.get('grokApiKey');
     const openrouter = config.get('openrouterToken');
@@ -270,7 +270,9 @@ async function handleConfigMenu() {
     const ollamaCloud = config.get('ollamaCloudApiKey');
     const poktToken = config.get('poktToken');
     console.log(chalk.blue('\nCurrent config (tokens masked):'));
-    console.log(ui.dim('  Controller URL:'), getControllerBaseUrl(), ui.dim('(já configurado)'));
+    console.log(ui.dim('  Pokt API (chat):'), getPoktApiBaseUrl());
+    console.log(ui.dim('  Painel / serviço:'), getProPortalBaseUrl());
+    console.log(ui.dim('  Comprar token:'), getTokenPurchaseUrl());
     console.log(ui.dim('  Pokt Token:'), poktToken ? poktToken.slice(0, 10) + '****' : '(not set)');
     console.log(ui.dim('  OpenAI API Key:'), openai ? openai.slice(0, 8) + '****' : '(not set)');
     console.log(ui.dim('  Grok (xAI) API Key:'), grok ? grok.slice(0, 8) + '****' : '(not set)');
@@ -321,9 +323,8 @@ async function handleConfigMenu() {
 async function handleProviderMenu() {
   const { config, getEffectiveActiveModel, PROVIDER_LABELS, ALL_PROVIDERS } = await import('../config.js');
   let models = config.get('registeredModels');
-  const hasControllerUrl = !!(config.get('controllerBaseUrl'));
   const hasPoktToken = !!(config.get('poktToken'));
-  if ((hasControllerUrl || hasPoktToken) && !models.some((m: { provider: string }) => m.provider === 'controller')) {
+  if (hasPoktToken && !models.some((m: { provider: string }) => m.provider === 'controller')) {
     models = [{ provider: 'controller', id: 'default' }, ...models];
     config.set('registeredModels', models);
   }

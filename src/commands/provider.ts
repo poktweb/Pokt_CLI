@@ -1,5 +1,15 @@
 import type * as Yargs from 'yargs';
-import { config, ALL_PROVIDERS, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaCloudApiKey, getPoktToken } from '../config.js';
+import {
+  config,
+  ALL_PROVIDERS,
+  getOpenAIApiKey,
+  getGrokApiKey,
+  getOpenRouterToken,
+  getGeminiApiKey,
+  getOllamaCloudApiKey,
+  getPoktToken,
+  getProPortalBaseUrl,
+} from '../config.js';
 import type { Provider } from '../config.js';
 import { ui } from '../ui.js';
 
@@ -57,7 +67,11 @@ export const providerCommand: Yargs.CommandModule<{}, ProviderArgs> = {
       return;
     }
     if (provider === 'controller' && !getPoktToken()) {
-      console.log(ui.error('Pokt token not set. Use: pokt config set-pokt-token -v <token>'));
+      console.log(
+        ui.error(
+          `Pokt token not set. Painel: ${getProPortalBaseUrl()} — pokt config set-pokt-token -v <token>`
+        )
+      );
       return;
     }
     if (provider === 'ollama-cloud' && !getOllamaCloudApiKey()) {

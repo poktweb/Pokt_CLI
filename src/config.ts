@@ -27,7 +27,27 @@ export interface ModelConfig {
   id: string;
 }
 
-const DEFAULT_CONTROLLER_URL = 'https://pokt-cli-controller.vercel.app';
+/** Serviço Pokt na Railway: API (`/api/v1`), painel e tudo que substituiu o host antigo da Vercel. */
+const DEFAULT_POKT_SERVICE_BASE_URL = 'https://poktcliback-production.up.railway.app';
+
+/** Somente fluxo de compra de token (Stripe / “Torne-se Pro”) — permanece no Controller Vercel. */
+const DEFAULT_TOKEN_PURCHASE_BASE_URL = 'https://pokt-cli-controller.vercel.app';
+
+/** Host legado: configs antigas são migradas automaticamente para `DEFAULT_POKT_SERVICE_BASE_URL`. */
+const LEGACY_VERCEL_POKT_HOST = 'pokt-cli-controller.vercel.app';
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/$/, '');
+}
+
+function isLegacyVercelPoktUrl(url: string): boolean {
+  try {
+    const u = new URL(url.trim());
+    return u.hostname.toLowerCase() === LEGACY_VERCEL_POKT_HOST;
+  } catch {
+    return false;
+  }
+}
 
 export interface McpServerConfig {
   name: string;
@@ -57,7 +77,12 @@ interface AppConfig {
   geminiApiKey: string;
   ollamaBaseUrl: string;
   ollamaCloudApiKey: string;
+  /** Painel / links gerais (Railway); não usar para compra de token */
   controllerBaseUrl: string;
+  /** Base para API com token Pokt — provider `controller` (Railway) */
+  poktApiBaseUrl: string;
+  /** Só compra de token / checkout — Vercel */
+  tokenPurchaseBaseUrl: string;
   poktToken: string;
   registeredModels: ModelConfig[];
   activeModel: ModelConfig | null;
@@ -73,7 +98,9 @@ export const config = new Conf<AppConfig>({
     geminiApiKey: '',
     ollamaBaseUrl: 'http://localhost:11434',
     ollamaCloudApiKey: '',
-    controllerBaseUrl: DEFAULT_CONTROLLER_URL,
+    controllerBaseUrl: DEFAULT_POKT_SERVICE_BASE_URL,
+    poktApiBaseUrl: DEFAULT_POKT_SERVICE_BASE_URL,
+    tokenPurchaseBaseUrl: DEFAULT_TOKEN_PURCHASE_BASE_URL,
     poktToken: '',
     registeredModels: [
       { provider: 'controller', id: 'default' },
@@ -105,7 +132,28 @@ export const env = {
   ollamaBaseUrl: ['OLLAMA_BASE_URL'] as const,
   ollamaCloudApiKey: ['OLLAMA_CLOUD_API_KEY'] as const,
   poktToken: ['POKT_TOKEN'] as const,
+  poktApiBaseUrl: ['POKT_API_BASE_URL'] as const,
+  /** Painel e URLs gerais (Railway) */
+  proPortalUrl: ['POKT_PRO_PORTAL_URL', 'POKT_CONTROLLER_PORTAL_URL'] as const,
+  /** Apenas página de compra de token (Vercel) */
+  tokenPurchaseUrl: ['POKT_TOKEN_PURCHASE_URL'] as const,
 } as const;
+
+/**
+ * Migração: quem tinha a URL antiga da Vercel em API ou portal passa a usar a Railway.
+ * A URL de compra de token não é alterada aqui.
+ */
+function migrateLegacyPoktUrls(): void {
+  const target = DEFAULT_POKT_SERVICE_BASE_URL;
+  for (const key of ['poktApiBaseUrl', 'controllerBaseUrl'] as const) {
+    const val = config.get(key);
+    if (typeof val === 'string' && val.trim() !== '' && isLegacyVercelPoktUrl(val)) {
+      config.set(key, target);
+    }
+  }
+}
+
+migrateLegacyPoktUrls();
 
 export function getOpenAIApiKey(): string {
   return readEnvFirst(env.openaiApiKey) || config.get('openaiApiKey') || '';
@@ -131,13 +179,32 @@ export function getPoktToken(): string {
   return readEnvFirst(env.poktToken) || config.get('poktToken') || '';
 }
 
-export const getControllerBaseUrl = (): string => {
-  const url = config.get('controllerBaseUrl') || DEFAULT_CONTROLLER_URL;
-  return url.replace(/\/$/, '');
-};
+/** Base da API só para provider `controller` (Bearer Pokt). OpenAI direto usa outro ramo no getClient. */
+export function getPoktApiBaseUrl(): string {
+  const fromEnv = readEnvFirst(env.poktApiBaseUrl);
+  const url = fromEnv || config.get('poktApiBaseUrl') || DEFAULT_POKT_SERVICE_BASE_URL;
+  return normalizeBaseUrl(url);
+}
 
-/** Página inicial do Pokt Pro (aí tem o botão de assinatura/pagamento). */
-export const getProPurchaseUrl = (): string => getControllerBaseUrl();
+/** Painel e links gerais (Railway), exceto compra de token — ver getTokenPurchaseUrl(). */
+export function getProPortalBaseUrl(): string {
+  const fromEnv = readEnvFirst(env.proPortalUrl);
+  const url = fromEnv || config.get('controllerBaseUrl') || DEFAULT_POKT_SERVICE_BASE_URL;
+  return normalizeBaseUrl(url);
+}
+
+/** Somente comprar token / checkout — Vercel (Controller). Usado por `pokt pro`. */
+export function getTokenPurchaseUrl(): string {
+  const fromEnv = readEnvFirst(env.tokenPurchaseUrl);
+  const url = fromEnv || config.get('tokenPurchaseBaseUrl') || DEFAULT_TOKEN_PURCHASE_BASE_URL;
+  return normalizeBaseUrl(url);
+}
+
+/** @deprecated Use getPoktApiBaseUrl() ou getProPortalBaseUrl() conforme o caso. */
+export const getControllerBaseUrl = getPoktApiBaseUrl;
+
+/** URL aberta por `pokt pro` (comprar token) — Vercel por padrão. */
+export const getProPurchaseUrl = (): string => getTokenPurchaseUrl();
 
 /** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export function getEffectiveActiveModel(): ModelConfig | null {

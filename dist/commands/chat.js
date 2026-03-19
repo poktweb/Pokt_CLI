@@ -1,4 +1,4 @@
-import { getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getPoktToken } from '../config.js';
+import { getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getPoktToken, getProPortalBaseUrl, } from '../config.js';
 import { startChatLoop } from '../chat/loop.js';
 import { ui } from '../ui.js';
 export const chatCommand = {
@@ -29,7 +29,7 @@ export const chatCommand = {
         }
         if (activeModel.provider === 'controller') {
             if (!getPoktToken()) {
-                console.log(ui.error('Pokt token not set. Generate one at the panel and: pokt config set-pokt-token -v <token>'));
+                console.log(ui.error(`Pokt token not set. Painel: ${getProPortalBaseUrl()} — pokt config set-pokt-token -v <token>`));
                 return;
             }
         }

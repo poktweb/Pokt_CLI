@@ -34,7 +34,12 @@ interface AppConfig {
     geminiApiKey: string;
     ollamaBaseUrl: string;
     ollamaCloudApiKey: string;
+    /** Painel / links gerais (Railway); não usar para compra de token */
     controllerBaseUrl: string;
+    /** Base para API com token Pokt — provider `controller` (Railway) */
+    poktApiBaseUrl: string;
+    /** Só compra de token / checkout — Vercel */
+    tokenPurchaseBaseUrl: string;
     poktToken: string;
     registeredModels: ModelConfig[];
     activeModel: ModelConfig | null;
@@ -49,6 +54,11 @@ export declare const env: {
     readonly ollamaBaseUrl: readonly ["OLLAMA_BASE_URL"];
     readonly ollamaCloudApiKey: readonly ["OLLAMA_CLOUD_API_KEY"];
     readonly poktToken: readonly ["POKT_TOKEN"];
+    readonly poktApiBaseUrl: readonly ["POKT_API_BASE_URL"];
+    /** Painel e URLs gerais (Railway) */
+    readonly proPortalUrl: readonly ["POKT_PRO_PORTAL_URL", "POKT_CONTROLLER_PORTAL_URL"];
+    /** Apenas página de compra de token (Vercel) */
+    readonly tokenPurchaseUrl: readonly ["POKT_TOKEN_PURCHASE_URL"];
 };
 export declare function getOpenAIApiKey(): string;
 export declare function getGrokApiKey(): string;
@@ -57,8 +67,15 @@ export declare function getGeminiApiKey(): string;
 export declare function getOllamaBaseUrl(): string;
 export declare function getOllamaCloudApiKey(): string;
 export declare function getPoktToken(): string;
-export declare const getControllerBaseUrl: () => string;
-/** Página inicial do Pokt Pro (aí tem o botão de assinatura/pagamento). */
+/** Base da API só para provider `controller` (Bearer Pokt). OpenAI direto usa outro ramo no getClient. */
+export declare function getPoktApiBaseUrl(): string;
+/** Painel e links gerais (Railway), exceto compra de token — ver getTokenPurchaseUrl(). */
+export declare function getProPortalBaseUrl(): string;
+/** Somente comprar token / checkout — Vercel (Controller). Usado por `pokt pro`. */
+export declare function getTokenPurchaseUrl(): string;
+/** @deprecated Use getPoktApiBaseUrl() ou getProPortalBaseUrl() conforme o caso. */
+export declare const getControllerBaseUrl: typeof getPoktApiBaseUrl;
+/** URL aberta por `pokt pro` (comprar token) — Vercel por padrão. */
 export declare const getProPurchaseUrl: () => string;
 /** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export declare function getEffectiveActiveModel(): ModelConfig | null;
