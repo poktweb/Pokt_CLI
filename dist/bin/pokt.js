@@ -9,10 +9,13 @@ import { mcpCommand } from '../commands/mcp.js';
 import { updateCommand } from '../commands/update.js';
 import { uninstallCommand } from '../commands/uninstall.js';
 import { proCommand, runProFlow } from '../commands/pro.js';
+import { doctorCommand } from '../commands/doctor.js';
 import prompts from 'prompts';
 import chalk from 'chalk';
 import { ui } from '../ui.js';
 const argv = hideBin(process.argv);
+/** Banner typewriter só na 1ª vez do menu nesta execução; ao voltar de submenus, banner instantâneo. Novo `pokt` = animação de novo. */
+let mainMenuBannerAnimatedThisProcess = false;
 if (argv.length === 0) {
     showMenu();
 }
@@ -25,6 +28,7 @@ else {
         .command(chatCommand)
         .command(providerCommand)
         .command(mcpCommand)
+        .command(doctorCommand)
         .command(updateCommand)
         .command(uninstallCommand)
         .command(proCommand)
@@ -37,7 +41,10 @@ async function showMenu() {
     const active = getEffectiveActiveModel();
     const providerLabel = active ? (PROVIDER_LABELS[active.provider] ?? active.provider) : 'No provider';
     console.log('');
-    await ui.printBanner({ animate: true });
+    const animateBanner = !mainMenuBannerAnimatedThisProcess;
+    if (animateBanner)
+        mainMenuBannerAnimatedThisProcess = true;
+    await ui.printBanner({ animate: animateBanner });
     console.log(ui.statusLine(providerLabel));
     console.log('');
     console.log(ui.separator());
@@ -52,6 +59,7 @@ async function showMenu() {
             { title: '➕ Add / sync models', value: 'add-models' },
             { title: '🏠 Switch API Provider (casa de API)', value: 'provider' },
             { title: '🔌 MCP Servers (tools externos)', value: 'mcp' },
+            { title: '🩺 Doctor (diagnóstico)', value: 'doctor' },
             { title: '⚙️  Configure API Keys / Tokens', value: 'config' },
             { title: '⭐ Torne-se Pro (site — pagamento + chave)', value: 'pro' },
             { title: '🔄 Atualizar Pokt CLI', value: 'update' },
@@ -64,7 +72,8 @@ async function showMenu() {
     }
     if (response.action === 'chat') {
         const { chatCommand } = await import('../commands/chat.js');
-        chatCommand.handler({ fromMenu: true });
+        await chatCommand.handler({ fromMenu: true });
+        return showMenu();
     }
     else if (response.action === 'models') {
         await handleModelsMenu();
@@ -77,6 +86,11 @@ async function showMenu() {
     }
     else if (response.action === 'config') {
         await handleConfigMenu();
+    }
+    else if (response.action === 'doctor') {
+        const { doctorCommand } = await import('../commands/doctor.js');
+        await doctorCommand.handler({});
+        return showMenu();
     }
     else if (response.action === 'pro') {
         runProFlow();
@@ -98,8 +112,9 @@ async function showMenu() {
             name: 'mcpAction',
             message: 'MCP:',
             choices: [
-                { title: '🧪 Test connection', value: 'test' },
-                { title: '🔙 Back', value: 'back' }
+                { title: '📄 Criar pokt_cli/mcp.json neste diretório (init)', value: 'init' },
+                { title: '🧪 Testar conexão (global + projeto)', value: 'test' },
+                { title: '🔙 Voltar', value: 'back' }
             ]
         });
         if (mcpResp.mcpAction === 'back')
@@ -179,9 +194,13 @@ async function handleAddModelsMenu() {
         name: 'action',
         message: 'Add or sync models from which provider?',
         choices: [
+            { title: 'OpenAI — sync all from API', value: 'fetch-openai' },
+            { title: 'Grok (xAI) — sync all from API', value: 'fetch-grok' },
             { title: 'OpenRouter — sync all from API', value: 'fetch-openrouter' },
             { title: 'Ollama (local) — sync from your Ollama (list models)', value: 'fetch-ollama' },
             { title: 'Ollama Cloud — sync from API', value: 'fetch-ollama-cloud' },
+            { title: 'OpenAI — add model by ID', value: 'add-openai' },
+            { title: 'Grok (xAI) — add model by ID', value: 'add-grok' },
             { title: 'OpenRouter — add model by ID', value: 'add-openrouter' },
             { title: 'Ollama (local) — add model by ID', value: 'add-ollama' },
             { title: 'Ollama Cloud — add model by ID', value: 'add-ollama-cloud' },
@@ -190,14 +209,18 @@ async function handleAddModelsMenu() {
     });
     if (response.action === 'back')
         return showMenu();
-    const addActions = ['add-openrouter', 'add-ollama', 'add-ollama-cloud'];
+    const addActions = ['add-openai', 'add-grok', 'add-openrouter', 'add-ollama', 'add-ollama-cloud'];
     if (addActions.includes(response.action)) {
         const idPrompt = await prompts({
             type: 'text',
             name: 'id',
-            message: response.action === 'add-openrouter'
-                ? 'Model ID (ex: google/gemini-2.5-flash):'
-                : 'Model ID (ex: llama3):'
+            message: response.action === 'add-openai'
+                ? 'Model ID (ex: gpt-4o-mini):'
+                : response.action === 'add-grok'
+                    ? 'Model ID (ex: grok-2-latest):'
+                    : response.action === 'add-openrouter'
+                        ? 'Model ID (ex: google/gemini-2.5-flash):'
+                        : 'Model ID (ex: llama3):'
         });
         const id = typeof idPrompt.id === 'string' ? idPrompt.id.trim() : '';
         if (id) {
@@ -222,6 +245,8 @@ async function handleConfigMenu() {
         choices: [
             { title: 'View current config', value: 'show' },
             { title: 'Pokt Token (do painel — só isso para usar Controller)', value: 'set-pokt-token' },
+            { title: 'OpenAI API Key', value: 'set-openai' },
+            { title: 'Grok (xAI) API Key', value: 'set-grok' },
             { title: 'OpenRouter Token', value: 'set-openrouter' },
             { title: 'Gemini API Key', value: 'set-gemini' },
             { title: 'Ollama Base URL (local)', value: 'set-ollama' },
@@ -233,6 +258,8 @@ async function handleConfigMenu() {
         return showMenu();
     if (response.type === 'show') {
         const { getControllerBaseUrl } = await import('../config.js');
+        const openai = config.get('openaiApiKey');
+        const grok = config.get('grokApiKey');
         const openrouter = config.get('openrouterToken');
         const gemini = config.get('geminiApiKey');
         const ollama = config.get('ollamaBaseUrl');
@@ -241,6 +268,8 @@ async function handleConfigMenu() {
         console.log(chalk.blue('\nCurrent config (tokens masked):'));
         console.log(ui.dim('  Controller URL:'), getControllerBaseUrl(), ui.dim('(já configurado)'));
         console.log(ui.dim('  Pokt Token:'), poktToken ? poktToken.slice(0, 10) + '****' : '(not set)');
+        console.log(ui.dim('  OpenAI API Key:'), openai ? openai.slice(0, 8) + '****' : '(not set)');
+        console.log(ui.dim('  Grok (xAI) API Key:'), grok ? grok.slice(0, 8) + '****' : '(not set)');
         console.log(ui.dim('  OpenRouter Token:'), openrouter ? openrouter.slice(0, 8) + '****' : '(not set)');
         console.log(ui.dim('  Gemini API Key:'), gemini ? gemini.slice(0, 8) + '****' : '(not set)');
         console.log(ui.dim('  Ollama Base URL (local):'), ollama || '(not set)');
@@ -259,6 +288,8 @@ async function handleConfigMenu() {
     if (valueResponse.val) {
         const keyMap = {
             'set-gemini': 'geminiApiKey',
+            'set-openai': 'openaiApiKey',
+            'set-grok': 'grokApiKey',
             'set-openrouter': 'openrouterToken',
             'set-ollama': 'ollamaBaseUrl',
             'set-ollama-cloud': 'ollamaCloudApiKey',

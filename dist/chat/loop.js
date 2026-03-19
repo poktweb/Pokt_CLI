@@ -8,7 +8,11 @@ import { getClient } from './client.js';
 import { tools, executeTool } from './tools.js';
 import { saveAuto, loadAuto, listCheckpoints, saveCheckpoint, loadCheckpoint, deleteCheckpoint, exportConversation, getSessionsDir } from './sessions.js';
 import { connectMcpServer, getAllMcpToolsOpenAI, callMcpTool, isMcpTool, disconnectAllMcp, } from '../mcp/client.js';
-const SYSTEM_PROMPT = `You are Pokt CLI, an elite AI Software Engineer.
+import { getMergedMcpServers } from '../mcp/project-mcp.js';
+import { runMcpFromBashMarkdown, stripExecutedStyleMcpBashBlocks, tryAutoMcpForListDatabases, } from './mcp-from-text.js';
+import { slimToolsForUpstreamPayload } from './slim-tools.js';
+/** Base do system prompt; a lista de ferramentas MCP é anexada em runtime quando houver servidores. */
+const SYSTEM_PROMPT_BASE = `You are Pokt CLI, an elite AI Software Engineer.
 Your goal is to help the user build, fix, and maintain software projects with high quality.
 
 CORE CAPABILITIES:
@@ -16,20 +20,38 @@ CORE CAPABILITIES:
 2.  **Autonomous Coding**: You can create new files, rewrite existing ones, and run terminal commands.
 3.  **Problem Solving**: You analyze errors and propose/apply fixes.
 
-CRITICAL - FILE CREATION/EDITS (this API does NOT support tool calls):
-- Do NOT reply with only "We will call read_file", "We will call write_file" or similar. Those tools will NOT run. The user will get no file.
-- You MUST output the complete file content in a markdown code block so the CLI can create/edit the file. Format: mention the filename (e.g. hello.py or **hello.py**) then a newline then \`\`\`python then newline then the full file content then \`\`\`.
-- For edits: first "read" the file by inferring its content from the user request and project context, then output the full updated file in a \`\`\`python (or correct language) block with the filename mentioned just above the block.
-- Never end your response with only an intention to call a tool. Always include the actual code in a block.
+FUNCTION CALLING (native tools — USE THEM):
+- This chat uses OpenAI-style **tool_calls**. You MUST use the provided functions for actions: \`read_file\`, \`write_file\`, \`run_command\`, \`list_files\`, etc., and any tool whose name starts with \`mcp_\`.
+- **Avoid** shell lines like \`mcp_Something_tool "..."\` in markdown — the CLI may run them as **fallback** if they match a registered tool, but **native tool_calls are always better** (correct args, one round-trip).
+- For databases/APIs exposed via MCP, call the real \`mcp_*\` tools with the correct JSON arguments (e.g. Neon: run SQL via the server's SQL tool, not a invented command name).
+- **Neon MCP**: tools like \`get_database_tables\`, \`describe_project\`, \`list_branch_computes\` need \`projectId\`. Call \`list_projects\` first and pass the \`id\` of the target project, or rely on the CLI: if your account has exactly one project, Pokt may inject \`projectId\` automatically. To list logical Postgres databases, prefer \`run_sql\` with \`SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1;\`.
+- **Neon \`run_sql\` (tool_calls)**: pass **JSON** fields expected by the schema (e.g. \`projectId\`, \`branchId\`, \`sql\`). Do **not** put \`neonctl\`-style flags inside \`sql\` (wrong: \`{"sql":"--project-id ... --sql \\"SELECT 1\\""}\`; right: \`{"projectId":"...","branchId":"...","sql":"SELECT 1"}\`). Use the \`id\` from \`list_projects\` for \`projectId\` — do not invent project ids.
+- If a tool call fails, read the error, adjust arguments, and retry or explain what the user must fix in config.
+
+WHEN THE MODEL DOES NOT RETURN tool_calls (rare):
+- You may still output the complete file content in a markdown code block so the CLI fallback can apply it. Format: mention the filename (e.g. hello.py) then \`\`\`lang ... \`\`\`.
+- Do NOT use this for shell-only or SQL-in-bash blocks meant to be executed — use \`run_command\` or MCP tools instead.
 
 GUIDELINES:
 - You will receive the user request first, then the current project structure. Use the project structure to understand the context before creating or editing anything.
 - When asked to fix something, first **read** the relevant files to understand the context.
-- When creating a project, start by planning the structure, then use \`write_file\` to create each file.
-- You have full access to the current terminal. You can run \`run_command\` for \`npm install\`, \`tsc\`, or any other command.
+- When creating a project, start by planning the structure, then use \`write_file\` (tool call) to create each file.
+- You have full access to the current terminal via \`run_command\` for \`npm install\`, \`tsc\`, etc. You may also emit **scripts executáveis** (Node, Python, npx, \`psql\`, etc.) via \`run_command\` when MCP não estiver disponível ou o usuário pedir código para rodar localmente.
+- **MCP tools**: Tools named \`mcp_<ServerName>_<toolName>\` connect to external services. Prefer them when they match the task.
+- **Never** return a completely empty assistant message: always include a short natural-language answer and/or use tool_calls. After tools run, summarize results for the user in Portuguese.
+- **After MCP/SQL succeeds**: give a **short** confirmation plus a **markdown table** (or bullet list) for rows/columns — do **not** repeat bash blocks with mcp_* lines, raw tool JSON, or invented shell commands; the CLI already executed native tool_calls.
 - Be extremely concise in your explanations.
 - The current working directory is: ${process.cwd()}
 `;
+function buildSystemPrompt(mcpToolNames) {
+    if (mcpToolNames.length === 0)
+        return SYSTEM_PROMPT_BASE;
+    const list = mcpToolNames.join(', ');
+    return `${SYSTEM_PROMPT_BASE}
+
+REGISTERED MCP TOOL NAMES (use only these exact names in tool_calls, never bash):
+${list}`;
+}
 async function loadProjectStructure() {
     try {
         const timeoutMs = 8000;
@@ -50,8 +72,11 @@ async function loadProjectStructure() {
 export async function startChatLoop(modelConfig) {
     let activeModel = modelConfig;
     let client = await getClient(activeModel);
-    // Conectar servidores MCP configurados e montar lista de tools (nativas + MCP)
-    const mcpServers = config.get('mcpServers') ?? [];
+    // MCP: config global + pokt_cli/mcp.json na raiz do projeto (projeto sobrescreve por nome)
+    const { merged: mcpServers, poktDir, mcpJsonPath } = getMergedMcpServers(process.cwd());
+    if (poktDir) {
+        console.log(ui.dim(`[MCP] Projeto: ${mcpJsonPath ?? poktDir}`));
+    }
     for (const server of mcpServers) {
         const session = await connectMcpServer(server);
         if (session) {
@@ -62,7 +87,12 @@ export async function startChatLoop(modelConfig) {
         ...tools,
         ...getAllMcpToolsOpenAI(),
     ];
-    const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+    /** Controller (Express) usa body parser com limite finito; MCPs como Neon geram schemas enormes. */
+    const toolsForApi = activeModel.provider === 'controller' ? slimToolsForUpstreamPayload(allTools) : allTools;
+    const mcpToolNames = allTools
+        .filter((t) => t.type === 'function' && Boolean(t.function?.name?.startsWith('mcp_')))
+        .map((t) => t.function.name);
+    const messages = [{ role: 'system', content: buildSystemPrompt(mcpToolNames) }];
     // Auto-resume do projeto (estilo gemini): se existir, adiciona mensagens anteriores (sem duplicar system prompt)
     const prev = loadAuto();
     if (prev && prev.length > 0) {
@@ -317,7 +347,7 @@ Atalhos:
             loadSpinner.stop();
             messages.push({ role: 'system', content: `Current Project Structure:\n${projectStructure}` });
         }
-        await processLLMResponse(client, activeModel.id, messages, allTools);
+        await processLLMResponse(client, activeModel.id, messages, toolsForApi);
         // Atualiza auto-save após resposta
         saveAuto(messages);
         // Captura última resposta do assistente para /copy (melhor esforço)
@@ -332,21 +362,95 @@ Atalhos:
     }
     await disconnectAllMcp();
 }
-const MAX_429_RETRIES = 3;
-const BASE_429_DELAY_MS = 5000;
+const MAX_RETRIES = 4;
+const BASE_RETRY_DELAY_MS = 1500;
+const MAX_RETRY_DELAY_MS = 15000;
+function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+}
+function getStatusCode(err) {
+    const s = err?.status ?? err?.response?.status;
+    return typeof s === 'number' ? s : null;
+}
+function isRetryable(err) {
+    const status = getStatusCode(err);
+    if (status === 429 || status === 408)
+        return true;
+    if (status && status >= 500 && status <= 599)
+        return true;
+    const msg = String(err?.message ?? '');
+    // erros comuns de rede/timeout
+    return /(ETIMEDOUT|ECONNRESET|EAI_AGAIN|ENOTFOUND|fetch failed|network|timeout)/i.test(msg);
+}
+function computeBackoff(attempt) {
+    const exp = Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * Math.pow(2, attempt));
+    const jitter = Math.floor(Math.random() * 250);
+    return exp + jitter;
+}
 /** Extensões que consideramos como arquivos de código para aplicar fallback */
 const CODE_EXT = /\.(py|js|ts|tsx|jsx|html|css|json|md|txt|java|go|rs|c|cpp|rb|php)$/i;
+/** Blocos shell/console: nunca viram arquivo no fallback (evita SQL/comandos fictícios em mcp.json). */
+function isShellLikeBlock(lang) {
+    return /^(bash|sh|shell|zsh|powershell|ps1|cmd|console)$/i.test(lang);
+}
+/**
+ * Caminhos que o fallback nunca deve sobrescrever (config MCP, env, lockfile).
+ */
+const FALLBACK_PATH_BLOCKLIST = /(^|\/|\\)(mcp\.json|\.env(\.[a-zA-Z0-9_-]+)?|package-lock\.json)$/i;
+function isFallbackPathBlocked(relPath) {
+    const norm = relPath.replace(/\\/g, '/');
+    const base = norm.split('/').pop() ?? norm;
+    return FALLBACK_PATH_BLOCKLIST.test(norm) || FALLBACK_PATH_BLOCKLIST.test(base);
+}
+/** Evita gravar `generated.*` com JSON de resposta MCP/SQL (eco do modelo). */
+function looksLikeMcpOrSqlResultSnippet(code) {
+    const t = code.trim();
+    if (!t)
+        return false;
+    if (/MCP error|"invalid_type"|Input validation error/i.test(t))
+        return true;
+    try {
+        const j = JSON.parse(t);
+        if (j !== null && typeof j === 'object' && !Array.isArray(j)) {
+            const o = j;
+            if ('success' in o && 'result' in o)
+                return true;
+            if (typeof o.error === 'string' && /mcp|tool|validation|invalid/i.test(o.error))
+                return true;
+        }
+        if (Array.isArray(j) && j.length > 0 && j.length <= 200) {
+            const first = j[0];
+            if (first && typeof first === 'object' && !Array.isArray(first)) {
+                const row = first;
+                const keys = Object.keys(row);
+                if (keys.length === 0)
+                    return false;
+                if (!keys.every((k) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)))
+                    return false;
+                const vals = Object.values(row);
+                if (vals.every((v) => v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')) {
+                    return true;
+                }
+            }
+        }
+    }
+    catch {
+        // não é JSON — não marcar
+    }
+    return false;
+}
+function toolsVerbose() {
+    return process.env.POKT_VERBOSE_TOOLS === '1' || process.env.POKT_VERBOSE === '1';
+}
+/** Linhas estilo "mcp_Server_tool ..." não são arquivos — são invocações inventadas. */
+function looksLikeFakeMcpInvocation(code) {
+    return /^\s*mcp_[A-Za-z0-9_.-]+\s+/m.test(code.trim());
+}
 /**
  * Quando a API não retorna tool_calls, alguns backends só devolvem texto.
  * Extrai blocos de código da resposta (```lang\n...\n```) e, se encontrar
  * um nome de arquivo mencionado antes do bloco, aplica write_file.
  */
-/** Blocos de comando "como rodar" (bash/sh de 1–2 linhas) não viram arquivo para não poluir. */
-function isRunCommandOnly(lang, code) {
-    const shellLike = /^(bash|sh|shell|zsh)$/i.test(lang);
-    const lines = code.split('\n').filter((l) => l.trim().length > 0);
-    return shellLike && lines.length <= 2;
-}
 /** Remove markdown/formatting do nome de arquivo (ex: **hello.py** → hello.py). */
 function cleanFilename(candidate) {
     return candidate.replace(/^[\s*`'"]+/g, '').replace(/[\s*`'")\]\s]+$/g, '').trim();
@@ -382,7 +486,9 @@ async function applyCodeBlocksFromContent(content) {
         });
     }
     for (const { fullMatch, index, lang, code } of matches) {
-        if (isRunCommandOnly(lang, code))
+        if (isShellLikeBlock(lang))
+            continue;
+        if (looksLikeFakeMcpInvocation(code))
             continue;
         const beforeBlock = content.substring(0, index);
         // Nome de arquivo: aceita "**hello.py**", "hello.py" antes de espaço/newline/backtick, etc.
@@ -390,9 +496,21 @@ async function applyCodeBlocksFromContent(content) {
         const rawCandidate = fileMatch ? fileMatch[fileMatch.length - 1].trim() : null;
         const candidate = rawCandidate ? cleanFilename(rawCandidate) : null;
         const path = candidate && CODE_EXT.test(candidate) ? candidate : (lang === 'python' ? 'generated.py' : lang ? `generated.${lang}` : null);
+        if (path && isFallbackPathBlocked(path))
+            continue;
+        if (path &&
+            /^generated\./i.test(path) &&
+            looksLikeMcpOrSqlResultSnippet(code)) {
+            continue;
+        }
         if (path && code) {
             try {
-                console.log(ui.warn(`\n[Fallback] Aplicando código da resposta ao arquivo: ${path}`));
+                if (toolsVerbose()) {
+                    console.log(ui.warn(`\n[Fallback] Aplicando código da resposta ao arquivo: ${path}`));
+                }
+                else {
+                    console.log(ui.dim(`\n[Fallback] ${path}`));
+                }
                 await executeTool('write_file', JSON.stringify({ path, content: code }));
                 applied = true;
                 appliedBlocks.push({ start: index, end: index + fullMatch.length, path });
@@ -411,23 +529,23 @@ async function applyCodeBlocksFromContent(content) {
     }
     return { applied, displayContent };
 }
-async function createCompletionWithRetry(client, modelId, messages, toolsList) {
+async function createCompletionWithRetry(client, modelId, messages, toolsList, toolChoice = 'auto') {
     let lastError;
-    for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
             return await client.chat.completions.create({
                 model: modelId,
                 messages,
                 tools: toolsList,
-                tool_choice: 'auto'
+                tool_choice: toolChoice,
             });
         }
         catch (err) {
             lastError = err;
-            const is429 = err?.status === 429 || (err?.message && String(err.message).includes('429'));
-            if (is429 && attempt < MAX_429_RETRIES) {
-                const delayMs = BASE_429_DELAY_MS * (attempt + 1);
-                await new Promise(r => setTimeout(r, delayMs));
+            const retryable = isRetryable(err);
+            if (retryable && attempt < MAX_RETRIES) {
+                const delayMs = computeBackoff(attempt);
+                await sleep(delayMs);
                 continue;
             }
             throw err;
@@ -435,42 +553,144 @@ async function createCompletionWithRetry(client, modelId, messages, toolsList) {
     }
     throw lastError;
 }
+/**
+ * Executa todas as rodadas de tool_calls até o modelo devolver mensagem sem ferramentas.
+ */
+async function drainToolCalls(client, modelId, messages, toolsList, startMessage, spinner) {
+    let message = startMessage;
+    let writeFileExecuted = false;
+    let anyToolExecuted = false;
+    let mcpToolExecuted = false;
+    const verbose = toolsVerbose();
+    while (message.tool_calls && message.tool_calls.length > 0) {
+        messages.push(message);
+        for (const toolCall of message.tool_calls) {
+            anyToolExecuted = true;
+            const name = toolCall.function.name;
+            if (name === 'write_file')
+                writeFileExecuted = true;
+            if (isMcpTool(name))
+                mcpToolExecuted = true;
+            const args = toolCall.function.arguments ?? '{}';
+            const isMcp = isMcpTool(name);
+            if (isMcp && !verbose) {
+                console.log(ui.dim(`[MCP] ${name}…`));
+            }
+            else {
+                console.log(ui.warn(`\n[Executing Tool: ${name}]`));
+                if (verbose || !isMcp)
+                    console.log(ui.dim(`Arguments: ${args}`));
+            }
+            const toolSpinner = ora('Running tool...').start();
+            const result = isMcp ? await callMcpTool(name, args) : await executeTool(name, args);
+            toolSpinner.stop();
+            if (verbose) {
+                console.log(ui.dim(`Result: ${result.length} characters`));
+            }
+            else if (isMcp) {
+                console.log(ui.dim(`[MCP] ${name} ✓ (${result.length} chars)`));
+            }
+            else {
+                console.log(ui.dim(`Result: ${result.length} characters`));
+            }
+            messages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: result,
+            });
+        }
+        spinner.start('Thinking...');
+        const completion = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto');
+        spinner.stop();
+        message = completion.choices[0].message;
+    }
+    return { message, writeFileExecuted, anyToolExecuted, mcpToolExecuted };
+}
 async function processLLMResponse(client, modelId, messages, toolsList) {
     const spinner = ora('Thinking...').start();
     try {
         let completion = await createCompletionWithRetry(client, modelId, messages, toolsList);
         let message = completion.choices[0].message;
         spinner.stop();
-        let writeFileExecutedThisTurn = false;
-        while (message.tool_calls && message.tool_calls.length > 0) {
-            messages.push(message);
-            for (const toolCall of message.tool_calls) {
-                const name = toolCall.function.name;
-                if (name === 'write_file')
-                    writeFileExecutedThisTurn = true;
-                const args = toolCall.function.arguments ?? '{}';
-                console.log(ui.warn(`\n[Executing Tool: ${name}]`));
-                console.log(ui.dim(`Arguments: ${args}`));
-                const toolSpinner = ora('Running tool...').start();
-                const result = isMcpTool(name)
-                    ? await callMcpTool(name, args)
-                    : await executeTool(name, args);
-                toolSpinner.stop();
-                console.log(ui.dim(`Result: ${result.length} characters`));
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    content: result,
-                });
-            }
-            spinner.start('Thinking...');
-            completion = await createCompletionWithRetry(client, modelId, messages, toolsList);
-            message = completion.choices[0].message;
-            spinner.stop();
-        }
-        const rawContent = message.content;
+        const drained = await drainToolCalls(client, modelId, messages, toolsList, message, spinner);
+        message = drained.message;
+        let writeFileExecutedThisTurn = drained.writeFileExecuted;
+        let anyToolExecutedThisTurn = drained.anyToolExecuted;
+        let mcpToolExecutedThisTurn = drained.mcpToolExecuted;
+        let rawContent = message.content;
         let contentStr = messageContentToString(rawContent);
         let finalContent = rawContent ?? contentStr;
+        if (mcpToolExecutedThisTurn) {
+            contentStr = stripExecutedStyleMcpBashBlocks(contentStr);
+            finalContent = contentStr;
+        }
+        // Modelo devolveu só tool_calls e texto vazio — evita mensagem inútil
+        if (!contentStr.trim() && anyToolExecutedThisTurn) {
+            contentStr =
+                '*(Ferramentas foram executadas (veja os logs `[MCP]` acima). O modelo não gerou texto final — peça um resumo com tabelas/dados se precisar.)*';
+            finalContent = contentStr;
+        }
+        // Só executa fallback bash se não houve MCP nativo (evita SQL duplicado e ruído).
+        let mcpFromText = mcpToolExecutedThisTurn
+            ? { invocationCount: 0, executedCount: 0, augmentedAssistantText: contentStr }
+            : await runMcpFromBashMarkdown(contentStr, {
+                skipDuplicateAppendix: /\n##\s+Resultados\s+MCP\b/i.test(contentStr),
+            });
+        if (mcpFromText.invocationCount > 0) {
+            contentStr = mcpFromText.augmentedAssistantText;
+            finalContent = mcpFromText.augmentedAssistantText;
+        }
+        // Resposta completamente vazia: recuperação (tool_choice required) + dreno + MCP em texto + SQL automático
+        if (!contentStr.trim() && toolsList.length > 0) {
+            messages.push({
+                role: 'system',
+                content: '[Pokt — recuperação] A última resposta veio vazia (sem texto útil). Responda em português. ' +
+                    'Use tool_calls: para listar bancos PostgreSQL use mcp_*_run_sql com {"sql":"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1;"}. ' +
+                    'Alternativa: run_command com script executável (node, python, npx, psql). Nunca devolva corpo vazio.',
+            });
+            spinner.start('Recuperando resposta vazia…');
+            let recovery;
+            try {
+                recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'required');
+            }
+            catch {
+                recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto');
+            }
+            spinner.stop();
+            const drained2 = await drainToolCalls(client, modelId, messages, toolsList, recovery.choices[0].message, spinner);
+            message = drained2.message;
+            writeFileExecutedThisTurn = writeFileExecutedThisTurn || drained2.writeFileExecuted;
+            anyToolExecutedThisTurn = anyToolExecutedThisTurn || drained2.anyToolExecuted;
+            mcpToolExecutedThisTurn = mcpToolExecutedThisTurn || drained2.mcpToolExecuted;
+            rawContent = message.content;
+            contentStr = messageContentToString(rawContent);
+            finalContent = rawContent ?? contentStr;
+            if (mcpToolExecutedThisTurn) {
+                contentStr = stripExecutedStyleMcpBashBlocks(contentStr);
+                finalContent = contentStr;
+            }
+            if (!contentStr.trim() && anyToolExecutedThisTurn) {
+                contentStr =
+                    '*(Ferramentas executadas no terminal acima; o modelo ainda não resumiu em texto — diga “resuma” se quiser.)*';
+                finalContent = contentStr;
+            }
+            mcpFromText = mcpToolExecutedThisTurn
+                ? { invocationCount: 0, executedCount: 0, augmentedAssistantText: contentStr }
+                : await runMcpFromBashMarkdown(contentStr, {
+                    skipDuplicateAppendix: /\n##\s+Resultados\s+MCP\b/i.test(contentStr),
+                });
+            if (mcpFromText.invocationCount > 0) {
+                contentStr = mcpFromText.augmentedAssistantText;
+                finalContent = mcpFromText.augmentedAssistantText;
+            }
+        }
+        if (!contentStr.trim()) {
+            const autoDb = await tryAutoMcpForListDatabases(messages);
+            if (autoDb) {
+                contentStr = autoDb;
+                finalContent = autoDb;
+            }
+        }
         // Quando a API não executa tools, tentar aplicar blocos de código da resposta
         if (!writeFileExecutedThisTurn) {
             let result = await applyCodeBlocksFromContent(contentStr);
@@ -479,7 +699,7 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
                 || (/call\s+(read_file|write_file)/i.test(contentStr) && contentStr.length < 400);
             if (!result.applied && looksLikeToolIntentOnly) {
                 messages.push({ role: 'assistant', content: rawContent ?? contentStr });
-                const followUpSystem = `This API does not support tool calls. You must NOT reply with "We will call X". Output the complete file content in a markdown code block so the user's CLI can create/edit the file. Format: mention the filename (e.g. hello.py) then newline then \`\`\`python then newline then the FULL file content then \`\`\`. Do that now for the user's last request.`;
+                const followUpSystem = `You replied as if tools would run in text only. Use tool_calls for read_file/write_file/run_command/mcp_* when possible. If you must output a file as markdown only: mention the filename then a full \`\`\`lang\`\`\` block — never use fake shell lines like mcp_Foo_bar. Do that now for the user's last request.`;
                 messages.push({ role: 'system', content: followUpSystem });
                 spinner.start('Getting code...');
                 const followUp = await createCompletionWithRetry(client, modelId, messages, toolsList);
@@ -506,7 +726,7 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
             }
             else {
                 console.log('\n' + ui.labelPokt());
-                console.log(ui.dim('(A IA não retornou código utilizável. Tente reformular o pedido.)'));
+                console.log(ui.dim('(Sem resposta da IA após recuperação. Tente: outro modelo em /model, ou peça explicitamente “chame mcp_Neon_run_sql com SELECT datname FROM pg_database…”, ou use run_command com psql/node.)'));
                 messages.push({ role: 'assistant', content: '' });
             }
         }
@@ -525,10 +745,22 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
     }
     catch (error) {
         spinner.stop();
-        const is429 = error?.status === 429 || (error?.message && String(error.message).includes('429'));
-        if (is429) {
-            console.log(ui.error('\nLimite de taxa atingido (429). O provedor está recebendo muitas requisições.'));
-            console.log(ui.dim('Aguarde alguns segundos e tente novamente.'));
+        const status = getStatusCode(error);
+        if (status === 429) {
+            console.log(ui.error('\nLimite de taxa (429). O provedor está te limitando por volume ou quota.'));
+            console.log(ui.dim('Dica: aguarde um pouco e tente novamente; se persistir, troque o provider/model ou verifique sua quota.'));
+        }
+        else if (status === 401 || status === 403) {
+            console.log(ui.error(`\nNão autorizado (${status}). Sua chave/token pode estar inválida ou sem permissão.`));
+            console.log(ui.dim('Dica: rode "pokt doctor" e confira suas variáveis de ambiente / pokt config show.'));
+        }
+        else if (status && status >= 500 && status <= 599) {
+            console.log(ui.error(`\nFalha no servidor (${status}). O provedor está instável no momento.`));
+            console.log(ui.dim('Dica: tente novamente em alguns segundos ou troque de provider.'));
+        }
+        else if (status === 413 || /413|Payload Too Large/i.test(String(error?.message ?? ''))) {
+            console.log(ui.error('\nCorpo da requisição muito grande (413 Payload Too Large).'));
+            console.log(ui.dim('Dica: use /chat save e /clear ou comece sessão nova; histórico + ferramentas MCP (Neon) estouram o limite do servidor. O Pokt já reduz schemas ao usar o Controller — atualize o Controller (limite JSON) e o CLI.'));
         }
         else {
             console.log(ui.error(`\nError: ${error?.message ?? error}`));

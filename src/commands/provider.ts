@@ -1,5 +1,5 @@
 import type * as Yargs from 'yargs';
-import { config, ALL_PROVIDERS } from '../config.js';
+import { config, ALL_PROVIDERS, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaCloudApiKey, getPoktToken } from '../config.js';
 import type { Provider } from '../config.js';
 import { ui } from '../ui.js';
 
@@ -9,7 +9,7 @@ interface ProviderArgs {
 
 export const providerCommand: Yargs.CommandModule<{}, ProviderArgs> = {
   command: 'provider use <provider>',
-  describe: 'Switch API provider (casa de API): controller (Pokt), openrouter, gemini, ollama, ollama-cloud',
+  describe: 'Switch API provider (casa de API): controller (Pokt), openai, grok, openrouter, gemini, ollama, ollama-cloud',
   builder: (yargs: Yargs.Argv) => yargs
     .positional('provider', {
       describe: 'Provider to use as primary',
@@ -24,6 +24,10 @@ export const providerCommand: Yargs.CommandModule<{}, ProviderArgs> = {
     if (!model) {
       if (provider === 'controller') {
         console.log(ui.error('Controller model not found. Add it with: pokt config set-pokt-token -v <token>'));
+      } else if (provider === 'openai') {
+        console.log(ui.error('No OpenAI model. Add one with: pokt models add-openai -i <id>'));
+      } else if (provider === 'grok') {
+        console.log(ui.error('No Grok (xAI) model. Add one with: pokt models add-grok -i <id>'));
       } else if (provider === 'openrouter') {
         console.log(ui.error('No OpenRouter model. Run: pokt models fetch-openrouter then pokt models list'));
       } else if (provider === 'ollama') {
@@ -36,19 +40,27 @@ export const providerCommand: Yargs.CommandModule<{}, ProviderArgs> = {
       return;
     }
 
-    if (provider === 'openrouter' && !config.get('openrouterToken')) {
+    if (provider === 'openai' && !getOpenAIApiKey()) {
+      console.log(ui.error('OpenAI API key not set. Use: pokt config set-openai -v <key>'));
+      return;
+    }
+    if (provider === 'grok' && !getGrokApiKey()) {
+      console.log(ui.error('Grok (xAI) API key not set. Use: pokt config set-grok -v <key>'));
+      return;
+    }
+    if (provider === 'openrouter' && !getOpenRouterToken()) {
       console.log(ui.error('OpenRouter token not set. Use: pokt config set-openrouter -v <token>'));
       return;
     }
-    if (provider === 'gemini' && !config.get('geminiApiKey')) {
+    if (provider === 'gemini' && !getGeminiApiKey()) {
       console.log(ui.error('Gemini API key not set. Use: pokt config set-gemini -v <key>'));
       return;
     }
-    if (provider === 'controller' && !config.get('poktToken')) {
+    if (provider === 'controller' && !getPoktToken()) {
       console.log(ui.error('Pokt token not set. Use: pokt config set-pokt-token -v <token>'));
       return;
     }
-    if (provider === 'ollama-cloud' && !config.get('ollamaCloudApiKey')) {
+    if (provider === 'ollama-cloud' && !getOllamaCloudApiKey()) {
       console.log(ui.error('Ollama Cloud API key not set. Use: pokt config set-ollama-cloud -v <key>'));
       return;
     }

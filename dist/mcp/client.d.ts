@@ -8,6 +8,11 @@ export interface McpToolDef {
     description: string;
     inputSchema: Record<string, unknown>;
 }
+type McpTransport = {
+    close?: () => void | Promise<void>;
+    sessionId?: string;
+    setProtocolVersion?: (v: string) => void;
+};
 export interface McpClientSession {
     serverName: string;
     client: {
@@ -29,16 +34,11 @@ export interface McpClientSession {
         }>;
     };
     tools: McpToolDef[];
-    transport?: {
-        close?: () => void;
-    };
+    transport?: McpTransport;
 }
-/**
- * Converte tool MCP para formato OpenAI ChatCompletionTool.
- */
 export declare function mcpToolToOpenAI(t: McpToolDef): ChatCompletionTool;
 /**
- * Conecta a um servidor MCP (stdio) e retorna a sessão com tools listados.
+ * Conecta a um servidor MCP (stdio, HTTP ou HTTP+OAuth).
  */
 export declare function connectMcpServer(serverConfig: McpServerConfig): Promise<McpClientSession | null>;
 /**
@@ -57,3 +57,8 @@ export declare function callMcpTool(exposedName: string, argsStr: string): Promi
  * Verifica se um nome de tool é de MCP (deve ser roteado ao cliente MCP).
  */
 export declare function isMcpTool(name: string): boolean;
+/** Nomes expostos de todas as tools MCP conectadas (ex.: mcp_Neon_run_sql). */
+export declare function getMcpExposedToolNames(): string[];
+/** Chaves de propriedades do schema de entrada da tool (para montar JSON a partir de string solta). */
+export declare function getMcpToolParameterKeys(exposedName: string): string[];
+export {};

@@ -8,7 +8,7 @@ export const configCommand = {
         .positional('action', {
         describe: 'Action to perform',
         type: 'string',
-        choices: ['set-openrouter', 'set-ollama', 'set-ollama-cloud', 'set-gemini', 'set-pokt-token', 'clear-openrouter', 'show']
+        choices: ['set-openai', 'set-grok', 'set-openrouter', 'set-ollama', 'set-ollama-cloud', 'set-gemini', 'set-pokt-token', 'clear-openrouter', 'clear-openai', 'clear-grok', 'show']
     })
         .option('value', {
         describe: 'The value to set',
@@ -18,12 +18,16 @@ export const configCommand = {
     handler: (argv) => {
         const { action, value } = argv;
         if (action === 'show') {
+            const openai = config.get('openaiApiKey');
+            const grok = config.get('grokApiKey');
             const openrouter = config.get('openrouterToken');
             const gemini = config.get('geminiApiKey');
             const ollama = config.get('ollamaBaseUrl');
             const ollamaCloud = config.get('ollamaCloudApiKey');
             const poktToken = config.get('poktToken');
             console.log(chalk.blue('\nCurrent config (tokens masked):'));
+            console.log(ui.dim('  OpenAI API Key:'), openai ? openai.slice(0, 8) + '****' : '(not set)');
+            console.log(ui.dim('  Grok (xAI) API Key:'), grok ? grok.slice(0, 8) + '****' : '(not set)');
             console.log(ui.dim('  OpenRouter Token:'), openrouter ? openrouter.slice(0, 8) + '****' : '(not set)');
             console.log(ui.dim('  Gemini API Key:'), gemini ? gemini.slice(0, 8) + '****' : '(not set)');
             console.log(ui.dim('  Ollama Base URL (local):'), ollama || '(not set)');
@@ -38,7 +42,17 @@ export const configCommand = {
             console.log(ui.success('OpenRouter token cleared.'));
             return;
         }
-        if (action !== 'set-openrouter' && action !== 'set-ollama' && action !== 'set-ollama-cloud' && action !== 'set-gemini' && action !== 'set-pokt-token')
+        if (action === 'clear-openai') {
+            config.set('openaiApiKey', '');
+            console.log(ui.success('OpenAI API key cleared.'));
+            return;
+        }
+        if (action === 'clear-grok') {
+            config.set('grokApiKey', '');
+            console.log(ui.success('Grok (xAI) API key cleared.'));
+            return;
+        }
+        if (action !== 'set-openai' && action !== 'set-grok' && action !== 'set-openrouter' && action !== 'set-ollama' && action !== 'set-ollama-cloud' && action !== 'set-gemini' && action !== 'set-pokt-token')
             return;
         const raw = Array.isArray(value) ? value[0] : value;
         const strValue = typeof raw === 'string' ? raw : (raw != null ? String(raw) : '');
@@ -46,7 +60,15 @@ export const configCommand = {
             console.log(ui.error('Error: --value is required. Use: pokt config ' + action + ' -v <value>'));
             return;
         }
-        if (action === 'set-openrouter') {
+        if (action === 'set-openai') {
+            config.set('openaiApiKey', strValue);
+            console.log(ui.success('OpenAI API key saved successfully.'));
+        }
+        else if (action === 'set-grok') {
+            config.set('grokApiKey', strValue);
+            console.log(ui.success('Grok (xAI) API key saved successfully.'));
+        }
+        else if (action === 'set-openrouter') {
             config.set('openrouterToken', strValue);
             console.log(ui.success('OpenRouter token saved successfully.'));
         }

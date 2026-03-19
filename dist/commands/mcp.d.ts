@@ -6,6 +6,8 @@ interface McpArgs {
     command?: string;
     args?: string;
     url?: string;
+    oauth?: boolean;
+    transport?: string;
 }
 export declare const mcpCommand: Yargs.CommandModule<{}, McpArgs>;
 export {};

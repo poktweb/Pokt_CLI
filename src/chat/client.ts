@@ -1,10 +1,21 @@
 import OpenAI from 'openai';
-import { config, ModelConfig, getControllerBaseUrl } from '../config.js';
+import {
+  config,
+  ModelConfig,
+  getControllerBaseUrl,
+  getOpenAIApiKey,
+  getGrokApiKey,
+  getOpenRouterToken,
+  getGeminiApiKey,
+  getOllamaCloudApiKey,
+  getOllamaBaseUrl,
+  getPoktToken,
+} from '../config.js';
 
 export async function getClient(modelConfig: ModelConfig): Promise<InstanceType<typeof OpenAI>> {
   if (modelConfig.provider === 'controller') {
     const baseUrl = getControllerBaseUrl();
-    const token = config.get('poktToken');
+    const token = getPoktToken();
     if (!token) {
       throw new Error('Token Pokt não configurado. No painel gere um token e use: pokt config set-pokt-token -v <token>');
     }
@@ -16,17 +27,35 @@ export async function getClient(modelConfig: ModelConfig): Promise<InstanceType<
         'X-Title': 'Pokt CLI',
       }
     });
+  } else if (modelConfig.provider === 'openai') {
+    const apiKey = getOpenAIApiKey();
+    if (!apiKey) {
+      throw new Error('OpenAI API key não configurada. Use: pokt config set-openai -v <key>');
+    }
+    return new OpenAI({
+      baseURL: 'https://api.openai.com/v1',
+      apiKey,
+    });
+  } else if (modelConfig.provider === 'grok') {
+    const apiKey = getGrokApiKey();
+    if (!apiKey) {
+      throw new Error('Grok (xAI) API key não configurada. Use: pokt config set-grok -v <key>');
+    }
+    return new OpenAI({
+      baseURL: 'https://api.x.ai/v1',
+      apiKey,
+    });
   } else if (modelConfig.provider === 'openrouter') {
     return new OpenAI({
       baseURL: 'https://openrouter.ai/api/v1',
-      apiKey: config.get('openrouterToken'),
+      apiKey: getOpenRouterToken(),
       defaultHeaders: {
         'HTTP-Referer': 'https://github.com/pokt-cli',
         'X-Title': 'Pokt CLI',
       }
     });
   } else if (modelConfig.provider === 'gemini') {
-    const apiKey = config.get('geminiApiKey');
+    const apiKey = getGeminiApiKey();
     if (!apiKey) {
       throw new Error('Gemini API key not set. Use: pokt config set-gemini -v <key>');
     }
@@ -35,7 +64,7 @@ export async function getClient(modelConfig: ModelConfig): Promise<InstanceType<
       apiKey: apiKey,
     });
   } else if (modelConfig.provider === 'ollama-cloud') {
-    const apiKey = config.get('ollamaCloudApiKey');
+    const apiKey = getOllamaCloudApiKey();
     if (!apiKey) {
       throw new Error('Ollama Cloud API key não configurada. Crie uma em https://ollama.com/settings/keys e use: pokt config set-ollama-cloud -v <key>');
     }
@@ -49,7 +78,7 @@ export async function getClient(modelConfig: ModelConfig): Promise<InstanceType<
   } else {
     // Ollama (local) — não precisa de API key
     return new OpenAI({
-      baseURL: `${config.get('ollamaBaseUrl')}/v1`,
+      baseURL: `${getOllamaBaseUrl()}/v1`,
       apiKey: 'ollama',
     });
   }

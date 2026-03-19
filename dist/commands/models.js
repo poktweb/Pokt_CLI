@@ -1,4 +1,4 @@
-import { config, getEffectiveActiveModel, PROVIDER_LABELS } from '../config.js';
+import { config, getEffectiveActiveModel, PROVIDER_LABELS, getOpenAIApiKey, getGrokApiKey } from '../config.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import { ui } from '../ui.js';
@@ -9,7 +9,7 @@ export const modelsCommand = {
         .positional('action', {
         describe: 'Action to perform',
         type: 'string',
-        choices: ['add', 'add-ollama', 'add-ollama-cloud', 'add-openrouter', 'use', 'list', 'fetch-openrouter', 'fetch-ollama', 'fetch-ollama-cloud']
+        choices: ['add', 'add-openai', 'add-grok', 'add-ollama', 'add-ollama-cloud', 'add-openrouter', 'use', 'list', 'fetch-openai', 'fetch-grok', 'fetch-openrouter', 'fetch-ollama', 'fetch-ollama-cloud']
     })
         .option('id', {
         describe: 'Model ID (e.g., llama3, google/gemini-2.5-flash)',
@@ -17,9 +17,9 @@ export const modelsCommand = {
         alias: 'i'
     })
         .option('provider', {
-        describe: 'Provider (for "add" or "use": openrouter, ollama, ollama-cloud, gemini, controller)',
+        describe: 'Provider (for "add" or "use": openai, grok, openrouter, ollama, ollama-cloud, gemini, controller)',
         type: 'string',
-        choices: ['openrouter', 'ollama', 'ollama-cloud', 'gemini', 'controller'],
+        choices: ['openai', 'grok', 'openrouter', 'ollama', 'ollama-cloud', 'gemini', 'controller'],
         alias: 'p'
     }),
     handler: async (argv) => {
@@ -34,6 +34,68 @@ export const modelsCommand = {
                 console.log(`${isActive ? chalk.green('★') : ' '} [${label}] ${m.id}`);
             });
             console.log('');
+            return;
+        }
+        if (action === 'fetch-openai') {
+            const apiKey = getOpenAIApiKey();
+            if (!apiKey) {
+                console.log(ui.error('OpenAI API key not set. Use: pokt config set-openai -v <key> ou defina OPENAI_API_KEY'));
+                return;
+            }
+            const spinner = ora('Fetching OpenAI models...').start();
+            try {
+                const response = await fetch('https://api.openai.com/v1/models', {
+                    headers: { Authorization: `Bearer ${apiKey}` },
+                });
+                if (!response.ok) {
+                    spinner.fail(ui.error(`Failed to fetch OpenAI models: HTTP ${response.status}`));
+                    const body = await response.text();
+                    if (body)
+                        console.log(ui.dim(body.slice(0, 200)));
+                    return;
+                }
+                const data = await response.json();
+                const openaiModels = (data.data || []).map((m) => ({ provider: 'openai', id: m.id }));
+                const currentModels = config.get('registeredModels');
+                const otherModels = currentModels.filter((m) => m.provider !== 'openai');
+                config.set('registeredModels', [...otherModels, ...openaiModels]);
+                spinner.succeed(ui.success(`Synchronized ${openaiModels.length} OpenAI models.`));
+            }
+            catch (error) {
+                spinner.fail(ui.error(`Failed to fetch OpenAI models: ${error.message}`));
+                console.log(ui.warn('Check your network and API key. Run: pokt config show'));
+            }
+            return;
+        }
+        if (action === 'fetch-grok') {
+            const apiKey = getGrokApiKey();
+            if (!apiKey) {
+                console.log(ui.error('Grok (xAI) API key not set. Use: pokt config set-grok -v <key> ou defina XAI_API_KEY'));
+                return;
+            }
+            const spinner = ora('Fetching Grok (xAI) models...').start();
+            try {
+                const response = await fetch('https://api.x.ai/v1/models', {
+                    headers: { Authorization: `Bearer ${apiKey}` },
+                });
+                if (!response.ok) {
+                    spinner.fail(ui.error(`Failed to fetch Grok (xAI) models: HTTP ${response.status}`));
+                    const body = await response.text();
+                    if (body)
+                        console.log(ui.dim(body.slice(0, 200)));
+                    return;
+                }
+                const data = await response.json();
+                const grokModels = (data.data || []).map((m) => ({ provider: 'grok', id: m.id }));
+                const currentModels = config.get('registeredModels');
+                const otherModels = currentModels.filter((m) => m.provider !== 'grok');
+                config.set('registeredModels', [...otherModels, ...grokModels]);
+                spinner.succeed(ui.success(`Synchronized ${grokModels.length} Grok (xAI) models.`));
+            }
+            catch (error) {
+                spinner.fail(ui.error(`Failed to fetch Grok (xAI) models: ${error.message}`));
+                console.log(ui.warn('Check your network and API key. Run: pokt config show'));
+            }
             return;
         }
         if (action === 'fetch-openrouter') {
@@ -121,7 +183,7 @@ export const modelsCommand = {
             return;
         }
         if (action === 'add') {
-            const allowed = ['openrouter', 'ollama', 'ollama-cloud'];
+            const allowed = ['openai', 'grok', 'openrouter', 'ollama', 'ollama-cloud'];
             if (!id)
                 return console.log(ui.error('Error: --id is required for add. Example: pokt models add -p openrouter -i google/gemini-2.5-flash'));
             if (!provider || !allowed.includes(provider)) {
@@ -132,11 +194,38 @@ export const modelsCommand = {
             if (!models.find((m) => m.id === id && m.provider === p)) {
                 models.push({ provider: p, id: id });
                 config.set('registeredModels', models);
-                const label = PROVIDER_LABELS[p];
+                const label = PROVIDER_LABELS[p] ?? p;
                 console.log(ui.success(`Added ${label} model: ${id}`));
             }
             else {
-                console.log(ui.warn(`Model ${id} already exists for ${PROVIDER_LABELS[p]}.`));
+                const label = PROVIDER_LABELS[p] ?? p;
+                console.log(ui.warn(`Model ${id} already exists for ${label}.`));
+            }
+        }
+        else if (action === 'add-openai') {
+            if (!id)
+                return console.log(ui.error('Error: --id is required for add-openai. Example: pokt models add-openai -i gpt-4o-mini'));
+            const models = config.get('registeredModels');
+            if (!models.find((m) => m.id === id && m.provider === 'openai')) {
+                models.push({ provider: 'openai', id: id });
+                config.set('registeredModels', models);
+                console.log(ui.success(`Added OpenAI model: ${id}`));
+            }
+            else {
+                console.log(ui.warn(`Model ${id} already exists for OpenAI.`));
+            }
+        }
+        else if (action === 'add-grok') {
+            if (!id)
+                return console.log(ui.error('Error: --id is required for add-grok. Example: pokt models add-grok -i grok-2-latest'));
+            const models = config.get('registeredModels');
+            if (!models.find((m) => m.id === id && m.provider === 'grok')) {
+                models.push({ provider: 'grok', id: id });
+                config.set('registeredModels', models);
+                console.log(ui.success(`Added Grok (xAI) model: ${id}`));
+            }
+            else {
+                console.log(ui.warn(`Model ${id} already exists for Grok (xAI).`));
             }
         }
         else if (action === 'add-ollama') {

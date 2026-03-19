@@ -11,6 +11,29 @@ const execAsync = promisify(exec);
 /** Máximo de linhas de diff exibidas; além disso mostra resumo para não imprimir arquivo inteiro */
 const MAX_DIFF_LINES = 45;
 
+function isGeneratedNoisePath(relPath: string): boolean {
+  const base = path.basename(relPath);
+  return /^generated\.(text|json)$/i.test(base);
+}
+
+function looksLikeMcpJsonDump(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  try {
+    const j = JSON.parse(t) as unknown;
+    if (j !== null && typeof j === 'object' && !Array.isArray(j)) {
+      const o = j as Record<string, unknown>;
+      return 'success' in o && 'result' in o;
+    }
+    if (Array.isArray(j) && j.length > 0 && j.every((x) => x && typeof x === 'object')) {
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 function showDiff(filePath: string, oldContent: string, newContent: string) {
   const relativePath = path.relative(process.cwd(), filePath);
   console.log(chalk.blue.bold(`\n📝 Edit ${relativePath}:`));
@@ -176,8 +199,15 @@ export async function executeTool(name: string, argsStr: string): Promise<string
       
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, args.content, 'utf8');
-      
-      showDiff(filePath, oldContent, args.content);
+
+      const rel = path.relative(process.cwd(), filePath);
+      if (isGeneratedNoisePath(rel) && looksLikeMcpJsonDump(args.content)) {
+        console.log(
+          chalk.dim(`\n📝 ${rel} (omitido diff — parece resposta MCP/JSON; use tabela no texto do assistente)\n`)
+        );
+      } else {
+        showDiff(filePath, oldContent, args.content);
+      }
       
       return `Successfully wrote to ${args.path}`;
     }

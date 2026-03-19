@@ -1,4 +1,4 @@
-import { config, getEffectiveActiveModel } from '../config.js';
+import { getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getPoktToken } from '../config.js';
 import { startChatLoop } from '../chat/loop.js';
 import { ui } from '../ui.js';
 export const chatCommand = {
@@ -11,16 +11,24 @@ export const chatCommand = {
             console.log(ui.error('No active model selected. Run: pokt models list then pokt models use -p <provider> -i <id>'));
             return;
         }
-        if (activeModel.provider === 'openrouter' && !config.get('openrouterToken')) {
+        if (activeModel.provider === 'openrouter' && !getOpenRouterToken()) {
             console.log(ui.error('OpenRouter token not set. Use: pokt config set-openrouter -v <token>'));
             return;
         }
-        if (activeModel.provider === 'gemini' && !config.get('geminiApiKey')) {
+        if (activeModel.provider === 'openai' && !getOpenAIApiKey()) {
+            console.log(ui.error('OpenAI API key not set. Use: pokt config set-openai -v <key>'));
+            return;
+        }
+        if (activeModel.provider === 'grok' && !getGrokApiKey()) {
+            console.log(ui.error('Grok (xAI) API key not set. Use: pokt config set-grok -v <key>'));
+            return;
+        }
+        if (activeModel.provider === 'gemini' && !getGeminiApiKey()) {
             console.log(ui.error('Gemini API key not set. Use: pokt config set-gemini -v <key>'));
             return;
         }
         if (activeModel.provider === 'controller') {
-            if (!config.get('poktToken')) {
+            if (!getPoktToken()) {
                 console.log(ui.error('Pokt token not set. Generate one at the panel and: pokt config set-pokt-token -v <token>'));
                 return;
             }
