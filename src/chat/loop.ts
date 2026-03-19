@@ -3,10 +3,11 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { ui } from '../ui.js';
 import { runProFlow } from '../commands/pro.js';
-import { ModelConfig } from '../config.js';
+import { ModelConfig, Provider, PROVIDER_LABELS, ALL_PROVIDERS } from '../config.js';
 import { config } from '../config.js';
 import { getClient } from './client.js';
 import { tools, executeTool } from './tools.js';
+import { saveAuto, loadAuto, listCheckpoints, saveCheckpoint, loadCheckpoint, deleteCheckpoint, exportConversation, getSessionsDir } from './sessions.js';
 import {
   connectMcpServer,
   getAllMcpToolsOpenAI,
@@ -63,7 +64,8 @@ async function loadProjectStructure(): Promise<string> {
 }
 
 export async function startChatLoop(modelConfig: ModelConfig) {
-  const client = await getClient(modelConfig);
+  let activeModel: ModelConfig = modelConfig;
+  let client = await getClient(activeModel);
 
   // Conectar servidores MCP configurados e montar lista de tools (nativas + MCP)
   const mcpServers = config.get('mcpServers') ?? [];
@@ -78,15 +80,182 @@ export async function startChatLoop(modelConfig: ModelConfig) {
     ...getAllMcpToolsOpenAI(),
   ];
 
-  const messages: ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_PROMPT }
-  ];
+  const messages: ChatCompletionMessageParam[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+  // Auto-resume do projeto (estilo gemini): se existir, adiciona mensagens anteriores (sem duplicar system prompt)
+  const prev = loadAuto();
+  if (prev && prev.length > 0) {
+    for (const m of prev) {
+      if (m.role === 'system') continue;
+      messages.push({ role: m.role, content: m.content } as any);
+    }
+    console.log(ui.dim(`Sessão anterior carregada (projeto). Use /chat list | /chat save <tag>.`));
+  }
+
+  function modelLabel(m: ModelConfig): string {
+    const provider = PROVIDER_LABELS[m.provider as Provider] ?? m.provider;
+    return `[${provider}] ${m.id}`;
+  }
+
+  async function switchModelFlow(mode: 'model' | 'provider' = 'model') {
+    const models = config.get('registeredModels') ?? [];
+    if (!Array.isArray(models) || models.length === 0) {
+      console.log(ui.error('Nenhum modelo registrado. Rode: pokt models list'));
+      return;
+    }
+
+    const providerChoices = (ALL_PROVIDERS as readonly Provider[]).map((p) => {
+      const label = PROVIDER_LABELS[p] ?? p;
+      const hasAny = models.some((m: ModelConfig) => m.provider === p);
+      const star = activeModel.provider === p ? '★ ' : '';
+      return {
+        title: `${star}${label}${hasAny ? '' : ' (sem modelos)'}`,
+        value: p,
+        disabled: !hasAny,
+      };
+    });
+
+    const providerPick = await prompts({
+      type: 'select',
+      name: 'provider',
+      message: mode === 'provider' ? 'Trocar provedor:' : 'Selecione o provedor:',
+      choices: [...providerChoices, { title: '🔙 Cancelar', value: 'cancel' }],
+    });
+    if (!providerPick.provider || providerPick.provider === 'cancel') return;
+
+    const provider = providerPick.provider as Provider;
+    const providerModels = models.filter((m: ModelConfig) => m.provider === provider);
+    if (providerModels.length === 0) {
+      console.log(ui.error(`Sem modelos para ${PROVIDER_LABELS[provider] ?? provider}.`));
+      return;
+    }
+
+    let selected: ModelConfig | null = null;
+    if (mode === 'provider') {
+      selected = providerModels[0];
+    } else {
+      const pick = await prompts({
+        type: 'select',
+        name: 'idx',
+        message: `Modelos em ${PROVIDER_LABELS[provider] ?? provider}:`,
+        choices: [
+          ...providerModels.map((m: ModelConfig, i: number) => ({
+            title: `${activeModel.provider === m.provider && activeModel.id === m.id ? '★ ' : ''}${m.id}`,
+            value: i,
+          })),
+          { title: '🔙 Cancelar', value: 'cancel' },
+        ],
+      });
+      if (pick.idx === 'cancel' || typeof pick.idx !== 'number') return;
+      selected = providerModels[pick.idx] ?? null;
+    }
+    if (!selected) return;
+
+    // Validar chaves/credenciais necessárias (reaproveita mesma lógica do providerCommand / getClient)
+    try {
+      const newClient = await getClient(selected);
+      client = newClient;
+    } catch (e: any) {
+      console.log(ui.error(e?.message ?? String(e)));
+      return;
+    }
+
+    activeModel = selected;
+    config.set('activeModel', selected);
+    console.log(ui.success(`Modelo ativo atualizado: ${modelLabel(selected)}`));
+    console.log(ui.dim('Dica: o histórico do chat foi mantido; apenas o modelo/provedor mudou.'));
+  }
+
+  function printHelp() {
+    console.log(
+      ui.dim(`
+Comandos do chat:
+  ${ui.accent('/help')} — mostra esta ajuda
+  ${ui.accent('/clear')} — limpa a tela
+  ${ui.accent('/status')} — mostra modelo/provider atual
+  ${ui.accent('/model')} — trocar modelo (menu interativo)
+  ${ui.accent('/provider')} — trocar provedor (usa o 1º modelo disponível)
+  ${ui.accent('/chat')} — checkpoints/sessões (list/save/resume/delete/share)
+  ${ui.accent('/resume')} — alias de /chat
+  ${ui.accent('/copy')} — copia a última resposta do Pokt (Windows: clip)
+  ${ui.accent('/pro')} — abrir Pokt Pro no navegador
+  ${ui.accent('/quit')} ou ${ui.accent('exit')} — sair do chat
+`)
+    );
+  }
+
+  let lastAssistantText = '';
+  async function handleChatCommand(raw: string) {
+    const parts = raw.trim().split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    const sub = (parts[1] ?? 'list').toLowerCase();
+    const arg = parts.slice(2).join(' ').trim();
+
+    if (sub === 'dir') {
+      console.log(ui.dim(`Sessões: ${getSessionsDir()}`));
+      return;
+    }
+    if (sub === 'list') {
+      const items = listCheckpoints();
+      if (items.length === 0) {
+        console.log(ui.dim('Nenhum checkpoint salvo ainda. Use: /chat save <tag>'));
+        return;
+      }
+      console.log(ui.dim('Checkpoints:'));
+      for (const it of items) {
+        console.log(`- ${ui.accent(it.tag)} ${it.updatedAt ? ui.dim(`(${it.updatedAt})`) : ''}`);
+      }
+      return;
+    }
+    if (sub === 'save') {
+      if (!arg) {
+        console.log(ui.error('Uso: /chat save <tag>'));
+        return;
+      }
+      saveCheckpoint(arg, messages);
+      console.log(ui.success(`Checkpoint salvo: ${arg}`));
+      return;
+    }
+    if (sub === 'resume' || sub === 'load') {
+      if (!arg) {
+        console.log(ui.error('Uso: /chat resume <tag>'));
+        return;
+      }
+      const loaded = loadCheckpoint(arg);
+      // mantém system prompt; substitui resto
+      const sys = messages[0];
+      messages.length = 0;
+      messages.push(sys);
+      for (const m of loaded) {
+        if (m.role === 'system') continue;
+        messages.push({ role: m.role, content: m.content } as any);
+      }
+      console.log(ui.success(`Checkpoint carregado: ${arg}`));
+      return;
+    }
+    if (sub === 'delete' || sub === 'rm') {
+      if (!arg) {
+        console.log(ui.error('Uso: /chat delete <tag>'));
+        return;
+      }
+      deleteCheckpoint(arg);
+      console.log(ui.success(`Checkpoint removido: ${arg}`));
+      return;
+    }
+    if (sub === 'share' || sub === 'export') {
+      const filename = arg || `pokt-chat-${Date.now()}.md`;
+      const out = exportConversation(filename, messages);
+      console.log(ui.success(`Exportado: ${out}`));
+      return;
+    }
+
+    console.log(ui.warn(`Subcomando desconhecido: ${sub}. Use /chat list|save|resume|delete|share`));
+  }
 
   while (true) {
     console.log('');
     const cwd = process.cwd();
     console.log(ui.dim(`Diretório atual: ${cwd}`));
-    console.log(ui.shortcutsLine('shift+tab to accept edits', '? · /pro (Torne-se Pro)'));
+    console.log(ui.shortcutsLine(undefined, '? · /help · /pro'));
     const response = await prompts({
       type: 'text',
       name: 'input',
@@ -104,6 +273,56 @@ export async function startChatLoop(modelConfig: ModelConfig) {
 
     const trimmed = userInput.trim();
     const low = trimmed.toLowerCase();
+    if (low === '/help' || low === '/?' || low === 'help') {
+      printHelp();
+      continue;
+    }
+    if (low === '/clear') {
+      console.clear();
+      continue;
+    }
+    if (low === '/status') {
+      console.log(ui.statusBar({ cwd: process.cwd(), model: `/model ${activeModel.provider} (${activeModel.id})` }));
+      continue;
+    }
+    if (low.startsWith('/chat') || low.startsWith('/resume')) {
+      await handleChatCommand(trimmed.replace(/^\/resume/i, '/chat'));
+      continue;
+    }
+    if (low === '/copy') {
+      try {
+        if (!lastAssistantText) {
+          console.log(ui.warn('Nada para copiar ainda.'));
+          continue;
+        }
+        // Sem interpolar conteúdo no comando (evita quebra por aspas/newlines).
+        // Escreve para um arquivo temporário e copia via Get-Content | clip (Windows).
+        const tmp = `.pokt_copy_${Date.now()}.txt`;
+        await executeTool('write_file', JSON.stringify({ path: tmp, content: lastAssistantText }));
+        await executeTool(
+          'run_command',
+          JSON.stringify({ command: `powershell -NoProfile -Command "Get-Content -Raw '${tmp}' | clip"` })
+        );
+        // best-effort cleanup
+        try {
+          await executeTool('delete_file', JSON.stringify({ path: tmp }));
+        } catch {
+          // ignore
+        }
+        console.log(ui.success('Copiado para a área de transferência.'));
+      } catch {
+        console.log(ui.warn('Falha ao copiar. Se estiver no Windows, verifique se o comando "clip" está disponível.'));
+      }
+      continue;
+    }
+    if (low === '/model') {
+      await switchModelFlow('model');
+      continue;
+    }
+    if (low === '/provider') {
+      await switchModelFlow('provider');
+      continue;
+    }
     if (low === '/pro' || low === '/torne-se-pro' || low === 'torne-se pro') {
       runProFlow();
       continue;
@@ -114,12 +333,14 @@ export async function startChatLoop(modelConfig: ModelConfig) {
 Atalhos:
   ${ui.accent('/pro')} ou ${ui.accent('/torne-se-pro')} — abrir Pokt Pro no navegador (pagamento + chave)
   exit, ${ui.accent('/quit')} — sair do chat
+  ${ui.accent('/help')} — ver comandos do chat
 `)
       );
       continue;
     }
 
     messages.push({ role: 'user', content: userInput });
+    saveAuto(messages);
 
     // Primeiro o modelo vê o pedido; depois carregamos a estrutura do projeto para ele entender e então criar/editar
     const isFirstUserMessage = messages.filter(m => m.role === 'user').length === 1;
@@ -130,7 +351,18 @@ Atalhos:
       messages.push({ role: 'system', content: `Current Project Structure:\n${projectStructure}` });
     }
 
-    await processLLMResponse(client, modelConfig.id, messages, allTools);
+    await processLLMResponse(client, activeModel.id, messages, allTools);
+    // Atualiza auto-save após resposta
+    saveAuto(messages);
+    // Captura última resposta do assistente para /copy (melhor esforço)
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m: any = messages[i];
+      if (m?.role === 'assistant') {
+        const c = m.content;
+        lastAssistantText = typeof c === 'string' ? c : Array.isArray(c) ? c.map((p: any) => (p && p.text ? p.text : String(p))).join('') : String(c ?? '');
+        break;
+      }
+    }
   }
   await disconnectAllMcp();
 }

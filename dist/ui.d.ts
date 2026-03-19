@@ -9,8 +9,13 @@ export declare const ui: {
     labelPokt: () => any;
     accent: (text: string) => any;
     muted: (text: string) => any;
-    /** Banner principal estilo Gemini CLI: logo + nome + versão */
+    /** Banner principal em ASCII (Pokt CLI) */
     banner: (customVersion?: string) => string;
+    /** Imprime o banner com “typewriter” (letra por letra) */
+    printBanner: (opts?: {
+        animate?: boolean;
+        version?: string;
+    }) => Promise<void>;
     /** Status de login / provider (uma linha) */
     statusLine: (providerLabel: string, configPath?: string) => any;
     /** Seção "Tips for getting started" */

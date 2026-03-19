@@ -34,7 +34,7 @@ export const chatCommand: Yargs.CommandModule = {
 
     // Se veio do menu interativo, não repetir banner/tips (já foram exibidos)
     if (!fromMenu) {
-      console.log(ui.banner());
+      await ui.printBanner({ animate: true });
       console.log(ui.statusLine(`[${activeModel.provider}] ${activeModel.id}`));
       console.log('');
       console.log(ui.tips());

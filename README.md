@@ -9,10 +9,10 @@ CLI de **Vibe Coding** com IA: OpenRouter, Ollama (local e cloud), Gemini e prov
 ## Instalação
 
 ```bash
-# Instalação global
+# Instalação principal (global)
 npm install -g pokt-cli
 
-# Ou use sem instalar
+# Alternativa: usar sem instalar
 npx pokt-cli
 ```
 
@@ -23,6 +23,22 @@ Sem argumentos, o Pokt abre um menu interativo:
 ```bash
 pokt
 ```
+
+## Se o `pokt` não for reconhecido (Windows)
+
+Se você instalou com `npm install -g pokt-cli` mas o PowerShell diz que `pokt` não existe, normalmente é **PATH do prefixo global do npm**.
+
+```bash
+# Veja onde o npm instala pacotes globais
+npm config get prefix
+
+# Verifique se o comando foi criado (PowerShell)
+where pokt
+```
+
+- **Garanta no PATH**: adicione o `prefix` acima (geralmente algo como `%AppData%\\npm`) ao PATH do Windows.
+- **Reinicie o terminal**: feche e abra o PowerShell/Terminal novamente.
+- **Reinstale**: `npm uninstall -g pokt-cli && npm install -g pokt-cli`
 
 Ou use os comandos diretamente:
 

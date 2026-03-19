@@ -37,7 +37,7 @@ async function showMenu() {
     const active = getEffectiveActiveModel();
     const providerLabel = active ? (PROVIDER_LABELS[active.provider] ?? active.provider) : 'No provider';
     console.log('');
-    console.log(ui.banner());
+    await ui.printBanner({ animate: true });
     console.log(ui.statusLine(providerLabel));
     console.log('');
     console.log(ui.separator());
