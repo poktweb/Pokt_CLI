@@ -34,6 +34,58 @@ function looksLikeMcpJsonDump(s: string): boolean {
   return false;
 }
 
+/**
+ * When exact old_string is not found, try to find a similar region and return helpful error.
+ * Inspired by gemini-cli fuzzy matcher fallback.
+ */
+function findClosestMatchAndBuildError(
+  fileContent: string,
+  oldString: string,
+  filePath: string
+): string {
+  const oldLines = oldString.split('\n').filter((l) => l.trim().length > 0);
+  if (oldLines.length === 0) {
+    return `search_replace failed: old_string is empty or only whitespace.`;
+  }
+  const firstLine = oldLines[0];
+  const idx = fileContent.indexOf(firstLine);
+  if (idx >= 0) {
+    const start = Math.max(0, idx - 200);
+    const end = Math.min(fileContent.length, idx + firstLine.length + 400);
+    const snippet = fileContent.slice(start, end);
+    const diffResult = diff.diffLines(oldString, snippet);
+    const diffPreview = diffResult
+      .slice(0, 8)
+      .map((p: { added?: boolean; removed?: boolean; value: string }) => (p.added ? `+${p.value}` : p.removed ? `-${p.value}` : ` ${p.value}`))
+      .join('')
+      .slice(0, 600);
+    return `search_replace failed: old_string not found exactly. First line was found at position ${idx}. Suggestion: check whitespace, indentation, line endings. Diff (expected vs file snippet):\n${diffPreview}\n\nCall read_file to see full content and retry with exact match.`;
+  }
+  const norm = (s: string) => s.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim();
+  const normOld = norm(oldString);
+  const fileLines = fileContent.split('\n');
+  let bestLineIdx = -1;
+  let bestLen = 0;
+  for (let i = 0; i < fileLines.length; i++) {
+    const lineNorm = norm(fileLines[i]);
+    if (lineNorm.length < 10) continue;
+    let matchLen = 0;
+    for (let j = 0; j < Math.min(lineNorm.length, normOld.length); j++) {
+      if (lineNorm[j] === normOld[j]) matchLen++;
+      else break;
+    }
+    if (matchLen > bestLen && matchLen >= 15) {
+      bestLen = matchLen;
+      bestLineIdx = i;
+    }
+  }
+  if (bestLineIdx >= 0) {
+    const ctx = fileLines.slice(Math.max(0, bestLineIdx - 2), bestLineIdx + 4).join('\n');
+    return `search_replace failed: old_string not found. Closest region (line ${bestLineIdx + 1}):\n---\n${ctx}\n---\nUse read_file("${filePath}") and retry with exact content including indentation and newlines.`;
+  }
+  return `search_replace failed: old_string not found in ${filePath}. Use read_file to get current content and ensure old_string matches exactly (whitespace, tabs, newlines).`;
+}
+
 function showDiff(filePath: string, oldContent: string, newContent: string) {
   const relativePath = path.relative(process.cwd(), filePath);
   console.log(chalk.blue.bold(`\n📝 Edit ${relativePath}:`));
@@ -130,8 +182,27 @@ export const tools: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'search_replace',
+      description:
+        'Replaces old_string with new_string in a file. PREFERRED for edits and modifications: targeted, minimal changes. Use read_file first to get current content. For new files or complete rewrites use write_file. expected_replacements (optional): if set, fails when count of matches ≠ value (prevents unintended broad changes).',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'The path to the file' },
+          old_string: { type: 'string', description: 'Exact text to find and replace (must match file content including whitespace)' },
+          new_string: { type: 'string', description: 'Replacement text' },
+          expected_replacements: { type: 'number', description: 'Optional: fail if number of occurrences ≠ this (safety guard)' }
+        },
+        required: ['path', 'old_string', 'new_string']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'write_file',
-      description: 'Writes content to a file. Overwrites if exists, creates if not.',
+      description:
+        'Writes full content to a file. Overwrites if exists, creates if not. Use for new files or complete rewrites. For small edits, prefer search_replace. When modifying existing work from this chat, use the same path as before (see user message [Pokt] hint or prior tool calls); call read_file first if you need the current contents.',
       parameters: {
         type: 'object',
         properties: {
@@ -191,6 +262,35 @@ export async function executeTool(name: string, argsStr: string): Promise<string
     
     if (name === 'read_file') {
       return fs.readFileSync(path.resolve(process.cwd(), args.path), 'utf8');
+    }
+
+    if (name === 'search_replace') {
+      const filePath = path.resolve(process.cwd(), args.path);
+      if (!fs.existsSync(filePath)) {
+        return `Error: File not found: ${args.path}. Use write_file to create it.`;
+      }
+      const content = fs.readFileSync(filePath, 'utf8');
+      const oldStr = args.old_string ?? '';
+      const newStr = args.new_string ?? '';
+      if (oldStr === newStr) {
+        return `search_replace: old_string and new_string are identical; no change made.`;
+      }
+      const expected = typeof args.expected_replacements === 'number' ? args.expected_replacements : undefined;
+      const occurrences = content.split(oldStr).length - 1;
+      if (occurrences === 0) {
+        const errMsg = findClosestMatchAndBuildError(content, oldStr, args.path);
+        return errMsg;
+      }
+      if (expected !== undefined && occurrences !== expected) {
+        return `search_replace failed: found ${occurrences} occurrence(s) of old_string, but expected_replacements=${expected}. Adjust old_string to be unique or set expected_replacements to ${occurrences}.`;
+      }
+      const newContent = content.split(oldStr).join(newStr);
+      fs.writeFileSync(filePath, newContent, 'utf8');
+      const rel = path.relative(process.cwd(), filePath);
+      if (!isGeneratedNoisePath(rel) || !looksLikeMcpJsonDump(newContent)) {
+        showDiff(filePath, content, newContent);
+      }
+      return `Successfully applied search_replace to ${args.path} (${occurrences} replacement(s)).`;
     }
     
     if (name === 'write_file') {

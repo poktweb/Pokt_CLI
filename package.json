@@ -1,6 +1,6 @@
 {
   "name": "pokt-cli",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Vibe Coding AI CLI for OpenRouter and Ollama",
   "main": "./dist/bin/pokt.js",
   "type": "module",

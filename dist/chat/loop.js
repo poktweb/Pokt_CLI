@@ -21,7 +21,8 @@ CORE CAPABILITIES:
 3.  **Problem Solving**: You analyze errors and propose/apply fixes.
 
 FUNCTION CALLING (native tools — USE THEM):
-- This chat uses OpenAI-style **tool_calls**. You MUST use the provided functions for actions: \`read_file\`, \`write_file\`, \`run_command\`, \`list_files\`, etc., and any tool whose name starts with \`mcp_\`.
+- This chat uses OpenAI-style **tool_calls**. You MUST use the provided functions for actions: \`read_file\`, \`search_replace\`, \`write_file\`, \`run_command\`, \`list_files\`, etc., and any tool whose name starts with \`mcp_\`.
+- **Edits vs rewrites**: For modifying existing files, prefer \`search_replace\` (old_string, new_string, path) — targeted, minimal changes. Use \`write_file\` only for new files or full rewrites. Always call \`read_file\` first to get exact content before \`search_replace\`.
 - **Avoid** shell lines like \`mcp_Something_tool "..."\` in markdown — the CLI may run them as **fallback** if they match a registered tool, but **native tool_calls are always better** (correct args, one round-trip).
 - For databases/APIs exposed via MCP, call the real \`mcp_*\` tools with the correct JSON arguments (e.g. Neon: run SQL via the server's SQL tool, not a invented command name).
 - **Neon MCP**: tools like \`get_database_tables\`, \`describe_project\`, \`list_branch_computes\` need \`projectId\`. Call \`list_projects\` first and pass the \`id\` of the target project, or rely on the CLI: if your account has exactly one project, Pokt may inject \`projectId\` automatically. To list logical Postgres databases, prefer \`run_sql\` with \`SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1;\`.
@@ -34,6 +35,7 @@ WHEN THE MODEL DOES NOT RETURN tool_calls (rare):
 
 GUIDELINES:
 - You will receive the user request first, then the current project structure. Use the project structure to understand the context before creating or editing anything.
+- **Session file focus**: User messages may include a \`[Pokt]\` line with the last path used via \`read_file\` / \`write_file\`. If the user asks to modify, migrate, or rewrite "the" script/app without naming a file, call \`read_file\` on that path and then \`write_file\` to the **same** path. Do **not** switch to \`main.py\` or another new name unless the user explicitly asks.
 - When asked to fix something, first **read** the relevant files to understand the context.
 - When creating a project, start by planning the structure, then use \`write_file\` (tool call) to create each file.
 - You have full access to the current terminal via \`run_command\` for \`npm install\`, \`tsc\`, etc. You may also emit **scripts executáveis** (Node, Python, npx, \`psql\`, etc.) via \`run_command\` when MCP não estiver disponível ou o usuário pedir código para rodar localmente.
@@ -68,6 +70,45 @@ async function loadProjectStructure() {
             return 'Could not list files.';
         }
     }
+}
+/** Detecta se o usuário está pedindo modificação/migração em projeto existente (como gemini-cli faz). */
+function suggestsProjectModification(userInput) {
+    const lower = userInput.toLowerCase().trim();
+    const modificationKeywords = [
+        'mudar', 'alterar', 'mudança', 'alteração', 'migrar', 'migração', 'trocar', 'converter',
+        'converta', 'modificar', 'refatorar', 'atualizar', 'substituir', 'troque', 'mude',
+        'change', 'migrate', 'convert', 'modify', 'refactor', 'update', 'replace', 'switch',
+    ];
+    return modificationKeywords.some((kw) => lower.includes(kw));
+}
+/** Extrai arquivos .py da estrutura do projeto (list_files retorna paths separados por newline). */
+function extractPyFilesFromStructure(structure) {
+    const lines = structure.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return lines.filter((p) => /\.py$/i.test(p) && !p.includes('node_modules') && !p.includes('.git'));
+}
+/** Infere o arquivo alvo para edição quando usuário pede modificar "calculadora", "app", etc. */
+function inferTargetFileFromProject(projectStructure, userInput) {
+    const pyFiles = extractPyFilesFromStructure(projectStructure);
+    if (pyFiles.length === 0)
+        return null;
+    const lower = userInput.toLowerCase();
+    // Palavras-chave que podem indicar o nome do arquivo
+    const keywords = ['calculadora', 'calculator', 'app', 'aplicativo', 'script', 'arquivo', 'projeto'];
+    for (const kw of keywords) {
+        if (lower.includes(kw)) {
+            const stem = kw.replace(/a$/, ''); // calculadora -> calculador
+            const match = pyFiles.find((f) => {
+                const base = f.replace(/\\/g, '/').split('/').pop()?.replace(/\.py$/, '') ?? '';
+                return base.toLowerCase().includes(kw) || base.toLowerCase().includes(stem);
+            });
+            if (match)
+                return match;
+        }
+    }
+    // Se só tem um .py no projeto, é provavelmente o alvo
+    if (pyFiles.length === 1)
+        return pyFiles[0];
+    return null;
 }
 export async function startChatLoop(modelConfig) {
     let activeModel = modelConfig;
@@ -190,6 +231,11 @@ Comandos do chat:
 `));
     }
     let lastAssistantText = '';
+    /** Último caminho relativo usado em read_file/write_file pelas tool_calls do assistente (foco da sessão). */
+    const sessionFileCtx = {
+        lastFocusedRelativePath: null,
+        suggestedModificationTarget: null,
+    };
     async function handleChatCommand(raw) {
         const parts = raw.trim().split(/\s+/);
         const cmd = parts[0].toLowerCase();
@@ -337,17 +383,36 @@ Atalhos:
 `));
             continue;
         }
-        messages.push({ role: 'user', content: userInput });
+        let userContent = userInput;
+        if (sessionFileCtx.lastFocusedRelativePath) {
+            userContent = `${userInput}\n\n[Pokt] Último arquivo usado com read_file/write_file/search_replace nesta sessão: \`${sessionFileCtx.lastFocusedRelativePath}\`. Para alterar esse trabalho sem o usuário citar o nome, leia esse caminho e edite com search_replace ou write_file no mesmo caminho — não crie outro arquivo (ex.: main.py) por padrão.]`;
+        }
+        messages.push({ role: 'user', content: userContent });
         saveAuto(messages);
-        // Primeiro o modelo vê o pedido; depois carregamos a estrutura do projeto para ele entender e então criar/editar
+        // Injeta estrutura do projeto para o modelo entender o contexto (como gemini-cli verifica antes de editar)
+        // Sempre na 1ª mensagem; também quando pedido sugere modificação/migração em projeto existente
         const isFirstUserMessage = messages.filter(m => m.role === 'user').length === 1;
-        if (isFirstUserMessage) {
-            const loadSpinner = ora('Carregando estrutura do projeto...').start();
+        const needsProjectContext = isFirstUserMessage || suggestsProjectModification(userInput);
+        if (needsProjectContext) {
+            const loadSpinner = ora('Verificando estrutura do projeto...').start();
             const projectStructure = await loadProjectStructure();
             loadSpinner.stop();
-            messages.push({ role: 'system', content: `Current Project Structure:\n${projectStructure}` });
+            const targetFile = suggestsProjectModification(userInput)
+                ? inferTargetFileFromProject(projectStructure, userInput)
+                : null;
+            if (targetFile) {
+                sessionFileCtx.suggestedModificationTarget = targetFile;
+            }
+            let structureHint = '[Pokt] Use list_files/read_file para confirmar arquivos existentes. Para modificar: leia com read_file, edite com search_replace ou write_file no MESMO caminho — NÃO crie main.py ou novo projeto.';
+            if (targetFile) {
+                structureHint += ` OBRIGATÓRIO: o arquivo a editar é \`${targetFile}\`. Use tool_calls em \`${targetFile}\`, NUNCA em main.py.`;
+            }
+            messages.push({
+                role: 'system',
+                content: `Current Project Structure:\n${projectStructure}\n\n${structureHint}`,
+            });
         }
-        await processLLMResponse(client, activeModel.id, messages, toolsForApi);
+        await processLLMResponse(client, activeModel.id, messages, toolsForApi, sessionFileCtx);
         // Atualiza auto-save após resposta
         saveAuto(messages);
         // Captura última resposta do assistente para /copy (melhor esforço)
@@ -451,9 +516,12 @@ function looksLikeFakeMcpInvocation(code) {
  * Extrai blocos de código da resposta (```lang\n...\n```) e, se encontrar
  * um nome de arquivo mencionado antes do bloco, aplica write_file.
  */
-/** Remove markdown/formatting do nome de arquivo (ex: **hello.py** → hello.py). */
+/** Remove markdown/formatting do nome de arquivo (ex: **hello.py** → hello.py, (main.py → main.py). */
 function cleanFilename(candidate) {
-    return candidate.replace(/^[\s*`'"]+/g, '').replace(/[\s*`'")\]\s]+$/g, '').trim();
+    return candidate
+        .replace(/^[\s*`'"(\[]+/g, '')
+        .replace(/[\s*`'")\]\s]+$/g, '')
+        .trim();
 }
 /**
  * Aplica blocos de código da resposta e retorna conteúdo para exibição (sem repetir o código).
@@ -471,7 +539,70 @@ function messageContentToString(content) {
     }
     return content != null ? String(content) : '';
 }
-async function applyCodeBlocksFromContent(content) {
+function getFirstChoiceMessage(completion) {
+    const msg = completion.choices?.[0]?.message;
+    return msg ?? null;
+}
+function trackToolPathFocus(name, argsStr, ctx) {
+    if (name !== 'read_file' && name !== 'write_file' && name !== 'search_replace')
+        return;
+    try {
+        const args = JSON.parse(argsStr);
+        if (typeof args.path === 'string' && args.path.trim()) {
+            ctx.lastFocusedRelativePath = args.path.replace(/\\/g, '/').trim();
+        }
+    }
+    catch {
+        /* ignore */
+    }
+}
+/**
+ * Se o fallback iria gravar em generated.* mas já há um arquivo “foco” na sessão com a mesma extensão,
+ * reutiliza esse caminho (evita criar generated.py ao lado de calculadora.py).
+ */
+function preferSessionPathOverGenerated(resolvedPath, ctx) {
+    const sessionLast = ctx?.lastFocusedRelativePath ?? null;
+    const suggested = ctx?.suggestedModificationTarget ?? null;
+    // Quando usuário pediu modificar e há arquivo inferido, NUNCA criar main.py/generated.py
+    if (suggested && /^(main|generated)\./i.test(resolvedPath)) {
+        return suggested.replace(/\\/g, '/');
+    }
+    if (!sessionLast || !/^generated\./i.test(resolvedPath))
+        return resolvedPath;
+    const suffix = resolvedPath.slice(resolvedPath.indexOf('.') + 1).toLowerCase();
+    const normLast = sessionLast.replace(/\\/g, '/').toLowerCase();
+    const extensionsForSuffix = {
+        py: ['.py'],
+        python: ['.py'],
+        js: ['.js'],
+        javascript: ['.js'],
+        mjs: ['.mjs'],
+        cjs: ['.cjs'],
+        ts: ['.ts', '.tsx'],
+        typescript: ['.ts', '.tsx'],
+        tsx: ['.tsx'],
+        jsx: ['.jsx'],
+        java: ['.java'],
+        go: ['.go'],
+        rs: ['.rs'],
+        html: ['.html', '.htm'],
+        css: ['.css'],
+        json: ['.json'],
+        md: ['.md', '.markdown'],
+        txt: ['.txt'],
+        cpp: ['.cpp', '.cc', '.cxx'],
+        c: ['.c'],
+        rb: ['.rb'],
+        php: ['.php'],
+    };
+    const exts = extensionsForSuffix[suffix];
+    if (exts?.some((e) => normLast.endsWith(e)))
+        return sessionLast.replace(/\\/g, '/');
+    if (normLast.endsWith('.' + suffix))
+        return sessionLast.replace(/\\/g, '/');
+    return resolvedPath;
+}
+async function applyCodeBlocksFromContent(content, sessionFileCtx) {
     const codeBlockRe = /```(\w*)\n([\s\S]*?)```/g;
     const appliedBlocks = [];
     let applied = false;
@@ -495,7 +626,10 @@ async function applyCodeBlocksFromContent(content) {
         const fileMatch = beforeBlock.match(/(\S+\.(?:py|js|ts|tsx|jsx|html|css|json|md|txt|java|go|rs|c|cpp|rb|php))(?=\s|$|[:.)\]*`"])/gi);
         const rawCandidate = fileMatch ? fileMatch[fileMatch.length - 1].trim() : null;
         const candidate = rawCandidate ? cleanFilename(rawCandidate) : null;
-        const path = candidate && CODE_EXT.test(candidate) ? candidate : (lang === 'python' ? 'generated.py' : lang ? `generated.${lang}` : null);
+        let path = candidate && CODE_EXT.test(candidate) ? candidate : lang === 'python' ? 'generated.py' : lang ? `generated.${lang}` : null;
+        if (path) {
+            path = preferSessionPathOverGenerated(path, sessionFileCtx);
+        }
         if (path && isFallbackPathBlocked(path))
             continue;
         if (path &&
@@ -513,6 +647,8 @@ async function applyCodeBlocksFromContent(content) {
                 }
                 await executeTool('write_file', JSON.stringify({ path, content: code }));
                 applied = true;
+                if (sessionFileCtx)
+                    sessionFileCtx.lastFocusedRelativePath = path.replace(/\\/g, '/');
                 appliedBlocks.push({ start: index, end: index + fullMatch.length, path });
             }
             catch {
@@ -556,7 +692,7 @@ async function createCompletionWithRetry(client, modelId, messages, toolsList, t
 /**
  * Executa todas as rodadas de tool_calls até o modelo devolver mensagem sem ferramentas.
  */
-async function drainToolCalls(client, modelId, messages, toolsList, startMessage, spinner) {
+async function drainToolCalls(client, modelId, messages, toolsList, startMessage, spinner, sessionFileCtx) {
     let message = startMessage;
     let writeFileExecuted = false;
     let anyToolExecuted = false;
@@ -567,11 +703,12 @@ async function drainToolCalls(client, modelId, messages, toolsList, startMessage
         for (const toolCall of message.tool_calls) {
             anyToolExecuted = true;
             const name = toolCall.function.name;
-            if (name === 'write_file')
+            if (name === 'write_file' || name === 'search_replace')
                 writeFileExecuted = true;
             if (isMcpTool(name))
                 mcpToolExecuted = true;
             const args = toolCall.function.arguments ?? '{}';
+            trackToolPathFocus(name, args, sessionFileCtx);
             const isMcp = isMcpTool(name);
             if (isMcp && !verbose) {
                 console.log(ui.dim(`[MCP] ${name}…`));
@@ -602,17 +739,28 @@ async function drainToolCalls(client, modelId, messages, toolsList, startMessage
         spinner.start('Thinking...');
         const completion = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto');
         spinner.stop();
-        message = completion.choices[0].message;
+        const nextMsg = getFirstChoiceMessage(completion);
+        if (!nextMsg) {
+            throw new Error('Resposta da API sem choices após execução de ferramentas.');
+        }
+        message = nextMsg;
     }
     return { message, writeFileExecuted, anyToolExecuted, mcpToolExecuted };
 }
-async function processLLMResponse(client, modelId, messages, toolsList) {
+async function processLLMResponse(client, modelId, messages, toolsList, sessionFileCtx) {
     const spinner = ora('Thinking...').start();
     try {
         let completion = await createCompletionWithRetry(client, modelId, messages, toolsList);
-        let message = completion.choices[0].message;
+        const first = getFirstChoiceMessage(completion);
+        if (!first) {
+            spinner.stop();
+            console.log(ui.error('\nResposta da API sem choices/mensagem. Tente novamente ou outro modelo.'));
+            messages.pop();
+            return;
+        }
+        let message = first;
         spinner.stop();
-        const drained = await drainToolCalls(client, modelId, messages, toolsList, message, spinner);
+        const drained = await drainToolCalls(client, modelId, messages, toolsList, message, spinner, sessionFileCtx);
         message = drained.message;
         let writeFileExecutedThisTurn = drained.writeFileExecuted;
         let anyToolExecutedThisTurn = drained.anyToolExecuted;
@@ -640,14 +788,20 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
             contentStr = mcpFromText.augmentedAssistantText;
             finalContent = mcpFromText.augmentedAssistantText;
         }
-        // Resposta completamente vazia: recuperação (tool_choice required) + dreno + MCP em texto + SQL automático
+        // Resposta completamente vazia: recuperação (tool_choice required)
         if (!contentStr.trim() && toolsList.length > 0) {
-            messages.push({
-                role: 'system',
-                content: '[Pokt — recuperação] A última resposta veio vazia (sem texto útil). Responda em português. ' +
-                    'Use tool_calls: para listar bancos PostgreSQL use mcp_*_run_sql com {"sql":"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1;"}. ' +
-                    'Alternativa: run_command com script executável (node, python, npx, psql). Nunca devolva corpo vazio.',
-            });
+            const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+            const lastUserContent = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
+            const isModificationRequest = suggestsProjectModification(lastUserContent);
+            let recoveryHint = '[Pokt — recuperação] A última resposta veio vazia. Responda em português. Use tool_calls. Nunca devolva corpo vazio. ';
+            if (isModificationRequest) {
+                recoveryHint +=
+                    'O usuário pediu modificação em projeto existente: chame list_files para ver arquivos, read_file no arquivo relevante, depois search_replace ou write_file no MESMO caminho. NÃO crie projeto novo. ';
+            }
+            recoveryHint +=
+                'Para bancos PostgreSQL: mcp_*_run_sql com {"sql":"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1;"}. ' +
+                    'Alternativa: run_command com script (node, python, npx, psql).';
+            messages.push({ role: 'system', content: recoveryHint });
             spinner.start('Recuperando resposta vazia…');
             let recovery;
             try {
@@ -657,7 +811,13 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
                 recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto');
             }
             spinner.stop();
-            const drained2 = await drainToolCalls(client, modelId, messages, toolsList, recovery.choices[0].message, spinner);
+            const recoveryFirst = getFirstChoiceMessage(recovery);
+            if (!recoveryFirst) {
+                console.log(ui.error('\nResposta da API sem choices na recuperação. Tente outro modelo.'));
+                messages.pop();
+                return;
+            }
+            const drained2 = await drainToolCalls(client, modelId, messages, toolsList, recoveryFirst, spinner, sessionFileCtx);
             message = drained2.message;
             writeFileExecutedThisTurn = writeFileExecutedThisTurn || drained2.writeFileExecuted;
             anyToolExecutedThisTurn = anyToolExecutedThisTurn || drained2.anyToolExecuted;
@@ -693,27 +853,33 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
         }
         // Quando a API não executa tools, tentar aplicar blocos de código da resposta
         if (!writeFileExecutedThisTurn) {
-            let result = await applyCodeBlocksFromContent(contentStr);
+            let result = await applyCodeBlocksFromContent(contentStr, sessionFileCtx);
             // Se a IA só disse "We will call read_file/write_file" e não há código, pedir o código em um follow-up
-            const looksLikeToolIntentOnly = /(We will call|We need to call|Let's call|I will call)\s+(read_file|write_file|run_command)/i.test(contentStr)
-                || (/call\s+(read_file|write_file)/i.test(contentStr) && contentStr.length < 400);
+            const looksLikeToolIntentOnly = /(We will call|We need to call|Let's call|I will call)\s+(read_file|search_replace|write_file|run_command)/i.test(contentStr)
+                || (/call\s+(read_file|search_replace|write_file)/i.test(contentStr) && contentStr.length < 400);
             if (!result.applied && looksLikeToolIntentOnly) {
                 messages.push({ role: 'assistant', content: rawContent ?? contentStr });
-                const followUpSystem = `You replied as if tools would run in text only. Use tool_calls for read_file/write_file/run_command/mcp_* when possible. If you must output a file as markdown only: mention the filename then a full \`\`\`lang\`\`\` block — never use fake shell lines like mcp_Foo_bar. Do that now for the user's last request.`;
+                const followUpSystem = `You replied as if tools would run in text only. Use tool_calls for read_file/search_replace/write_file/run_command/mcp_* when possible. Prefer search_replace for edits. If you must output a file as markdown only: mention the filename then a full \`\`\`lang\`\`\` block — never use fake shell lines like mcp_Foo_bar. Do that now for the user's last request.`;
                 messages.push({ role: 'system', content: followUpSystem });
                 spinner.start('Getting code...');
                 const followUp = await createCompletionWithRetry(client, modelId, messages, toolsList);
                 spinner.stop();
-                const followUpMsg = followUp.choices[0].message;
-                const followUpStr = messageContentToString(followUpMsg.content);
-                if (followUpStr.trim() !== '') {
-                    result = await applyCodeBlocksFromContent(followUpStr);
-                    contentStr = followUpStr;
-                    finalContent = followUpMsg.content ?? followUpStr;
-                    messages.push({ role: 'assistant', content: finalContent });
+                const followUpMsg = getFirstChoiceMessage(followUp);
+                if (!followUpMsg) {
+                    console.log(ui.error('\nFollow-up da API sem choices/mensagem.'));
+                    messages.push({ role: 'assistant', content: '' });
                 }
                 else {
-                    messages.push({ role: 'assistant', content: '' });
+                    const followUpStr = messageContentToString(followUpMsg.content);
+                    if (followUpStr.trim() !== '') {
+                        result = await applyCodeBlocksFromContent(followUpStr, sessionFileCtx);
+                        contentStr = followUpStr;
+                        finalContent = followUpMsg.content ?? followUpStr;
+                        messages.push({ role: 'assistant', content: finalContent });
+                    }
+                    else {
+                        messages.push({ role: 'assistant', content: '' });
+                    }
                 }
             }
             if (contentStr.trim() !== '') {
@@ -726,7 +892,13 @@ async function processLLMResponse(client, modelId, messages, toolsList) {
             }
             else {
                 console.log('\n' + ui.labelPokt());
-                console.log(ui.dim('(Sem resposta da IA após recuperação. Tente: outro modelo em /model, ou peça explicitamente “chame mcp_Neon_run_sql com SELECT datname FROM pg_database…”, ou use run_command com psql/node.)'));
+                const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+                const lastContent = typeof lastUser?.content === 'string' ? lastUser.content : '';
+                const isMod = suggestsProjectModification(lastContent);
+                const hint = isMod
+                    ? '(Sem resposta da IA. Para modificar projeto: peça "liste os arquivos e leia o arquivo". Tente /model.)'
+                    : '(Sem resposta da IA após recuperação. Tente: /model, ou peça mcp_Neon_run_sql, ou run_command.)';
+                console.log(ui.dim(hint));
                 messages.push({ role: 'assistant', content: '' });
             }
         }
