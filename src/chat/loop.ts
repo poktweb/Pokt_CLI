@@ -39,7 +39,7 @@ CORE CAPABILITIES:
 3.  **Problem Solving**: You analyze errors and propose/apply fixes.
 
 FUNCTION CALLING (native tools — USE THEM):
-- This chat uses OpenAI-style **tool_calls**. You MUST use the provided functions for actions: \`read_file\`, \`search_replace\`, \`write_file\`, \`run_command\`, \`list_files\`, etc., and any tool whose name starts with \`mcp_\`.
+- This chat uses OpenAI-style **tool_calls**. You MUST use the provided functions for actions: \`read_file\`, \`search_replace\`, \`write_file\`, \`run_command\`, \`list_files\`, \`delete_file\`, \`delete_directory\`, etc., and any tool whose name starts with \`mcp_\`.
 - **Edits vs rewrites**: For modifying existing files, prefer \`search_replace\` (old_string, new_string, path) — targeted, minimal changes. Use \`write_file\` only for new files or full rewrites. Always call \`read_file\` first to get exact content before \`search_replace\`.
 - **Avoid** shell lines like \`mcp_Something_tool "..."\` in markdown — the CLI may run them as **fallback** if they match a registered tool, but **native tool_calls are always better** (correct args, one round-trip).
 - For databases/APIs exposed via MCP, call the real \`mcp_*\` tools with the correct JSON arguments (e.g. Neon: run SQL via the server's SQL tool, not a invented command name).
@@ -59,6 +59,7 @@ GUIDELINES:
 - You have full access to the current terminal via \`run_command\` for \`npm install\`, \`tsc\`, etc. You may also emit **scripts executáveis** (Node, Python, npx, \`psql\`, etc.) via \`run_command\` when MCP não estiver disponível ou o usuário pedir código para rodar localmente.
 - **MCP tools**: Tools named \`mcp_<ServerName>_<toolName>\` connect to external services. Prefer them when they match the task.
 - **Never** return a completely empty assistant message: always include a short natural-language answer and/or use tool_calls. After tools run, summarize results for the user in Portuguese.
+- **Next.js app/pages conflict**: When build fails with "Conflicting app and page file" (pages/index.js vs app/page.tsx), resolve by calling \`delete_directory("app")\` to remove the app folder and keep only pages. Prefer tool_calls over shell blocks. On Windows, \`delete_directory\` is cross-platform and does not require rmdir/cmd.
 - **After MCP/SQL succeeds**: give a **short** confirmation plus a **markdown table** (or bullet list) for rows/columns — do **not** repeat bash blocks with mcp_* lines, raw tool JSON, or invented shell commands; the CLI already executed native tool_calls.
 - Be extremely concise in your explanations.
 - The current working directory is: ${process.cwd()}
@@ -506,6 +507,58 @@ function isShellLikeBlock(lang: string): boolean {
   return /^(bash|sh|shell|zsh|powershell|ps1|cmd|console)$/i.test(lang);
 }
 
+/** Comandos que resolvem conflito Next.js app/pages - executar via run_command quando em blocos shell. */
+function looksLikeNextJsConflictFix(code: string): boolean {
+  const t = code.trim().toLowerCase();
+  if (/mcp_[a-z0-9_-]+/i.test(t)) return false; // MCP já tratado separadamente
+  return (
+    (/\brmdir\b.*\bapp\b/.test(t) || /\bremove-item\b.*\bapp\b/i.test(t) || /\brm\s+-rf?\s+app\b/.test(t)) ||
+    (/\brmdir\b.*\.next\b/.test(t) || /\bremove-item\b.*\.next\b/i.test(t) || /\brm\s+-rf?\s+\.next\b/.test(t))
+  );
+}
+
+/**
+ * Executa blocos shell (cmd, powershell) que parecem corrigir conflito Next.js.
+ * Fallback quando a IA coloca rmdir/Remove-Item em markdown em vez de usar delete_directory.
+ */
+async function executeShellBlocksFromContent(content: string): Promise<{ executed: boolean; displayContent: string }> {
+  const codeBlockRe = /```(cmd|powershell|ps1|bash|sh)\s*\n([\s\S]*?)```/gi;
+  const executedBlocks: { start: number; end: number; command: string }[] = [];
+  let executed = false;
+  let m: RegExpExecArray | null;
+  const isWin = process.platform === 'win32';
+  while ((m = codeBlockRe.exec(content)) !== null) {
+    const lang = (m[1] || '').toLowerCase();
+    const code = (m[2] || '').replace(/\r\n/g, '\n').trim();
+    if (!code || !looksLikeNextJsConflictFix(code)) continue;
+    const lines = code.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+    for (const line of lines) {
+      if (/mcp_[a-z0-9_-]+/i.test(line)) continue;
+      const cmd = isWin && /^(bash|sh)$/.test(lang)
+        ? `cmd /c ${line.replace(/rm\s+-rf?\s+(\S+)/g, 'rmdir /s /q $1')}`
+        : line;
+      try {
+        if (toolsVerbose()) console.log(ui.warn(`\n[Fallback] Executando: ${cmd}`));
+        else console.log(ui.dim(`\n[Fallback] Executando comando: ${cmd.slice(0, 60)}${cmd.length > 60 ? '…' : ''}`));
+        await executeTool('run_command', JSON.stringify({ command: cmd }));
+        executed = true;
+        executedBlocks.push({ start: m.index, end: m.index + m[0].length, command: cmd });
+        break;
+      } catch {
+        // ignora falha
+      }
+    }
+  }
+  let displayContent = content;
+  for (let i = executedBlocks.length - 1; i >= 0; i--) {
+    const { start, end, command } = executedBlocks[i];
+    const placeholder = `\n${ui.dim('[Comando executado: ' + command.slice(0, 50) + (command.length > 50 ? '…' : '') + ']')}\n`;
+    displayContent = displayContent.substring(0, start) + placeholder + displayContent.substring(end);
+  }
+  return { executed, displayContent };
+}
+
 /**
  * Caminhos que o fallback nunca deve sobrescrever (config MCP, env, lockfile).
  */
@@ -895,7 +948,7 @@ async function processLLMResponse(
         '[Pokt — recuperação] A última resposta veio vazia. Responda em português. Use tool_calls. Nunca devolva corpo vazio. ';
       if (isModificationRequest) {
         recoveryHint +=
-          'O usuário pediu modificação em projeto existente: chame list_files para ver arquivos, read_file no arquivo relevante, depois search_replace ou write_file no MESMO caminho. NÃO crie projeto novo. ';
+          'O usuário pediu modificação em projeto existente: chame list_files para ver arquivos, read_file no arquivo relevante, depois search_replace ou write_file no MESMO caminho. NÃO crie projeto novo. Para conflito Next.js app/pages: delete_directory("app"). ';
       }
       recoveryHint +=
         'Para bancos PostgreSQL: mcp_*_run_sql com {"sql":"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1;"}. ' +
@@ -965,6 +1018,10 @@ async function processLLMResponse(
       }
     }
 
+    // Executar blocos shell que resolvem conflito Next.js (rmdir app, etc.)
+    const shellResult = await executeShellBlocksFromContent(contentStr);
+    if (shellResult.executed) contentStr = shellResult.displayContent;
+
     // Quando a API não executa tools, tentar aplicar blocos de código da resposta
     if (!writeFileExecutedThisTurn) {
       let result = await applyCodeBlocksFromContent(contentStr, sessionFileCtx);
@@ -973,7 +1030,7 @@ async function processLLMResponse(
         || (/call\s+(read_file|search_replace|write_file)/i.test(contentStr) && contentStr.length < 400);
       if (!result.applied && looksLikeToolIntentOnly) {
         messages.push({ role: 'assistant', content: rawContent ?? contentStr });
-        const followUpSystem = `You replied as if tools would run in text only. Use tool_calls for read_file/search_replace/write_file/run_command/mcp_* when possible. Prefer search_replace for edits. If you must output a file as markdown only: mention the filename then a full \`\`\`lang\`\`\` block — never use fake shell lines like mcp_Foo_bar. Do that now for the user's last request.`;
+        const followUpSystem = `You replied as if tools would run in text only. Use tool_calls for read_file/search_replace/write_file/run_command/delete_directory/delete_file/mcp_* when possible. Prefer search_replace for edits. For Next.js app/pages conflict: call delete_directory("app"). If you must output a file as markdown only: mention the filename then a full \`\`\`lang\`\`\` block — never use fake shell lines like mcp_Foo_bar. Do that now for the user's last request.`;
         messages.push({ role: 'system', content: followUpSystem });
         spinner.start('Getting code...');
         const followUp = await createCompletionWithRetry(client, modelId, messages, toolsList);

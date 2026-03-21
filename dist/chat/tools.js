@@ -247,6 +247,34 @@ export const tools = [
                 }
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'delete_file',
+            description: 'Deletes a single file. Use for removing files that cause conflicts (e.g. app/page.tsx in Next.js).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Relative path to the file to delete' }
+                },
+                required: ['path']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'delete_directory',
+            description: 'Deletes a directory and all its contents recursively. Use to resolve Next.js app/pages conflict: delete_directory("app") removes the app folder so only pages/ remains. Cross-platform, no shell needed.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Relative path to the directory to delete (e.g. "app" for Next.js app folder)' }
+                },
+                required: ['path']
+            }
+        }
     }
 ];
 export async function executeTool(name, argsStr) {
@@ -330,6 +358,45 @@ export async function executeTool(name, argsStr) {
             };
             walk(root);
             return files.join('\n') || 'No files found.';
+        }
+        /** Garante que o caminho resolvido está dentro do cwd (evita path traversal) */
+        function ensureWithinCwd(resolved) {
+            const cwd = process.cwd();
+            const normCwd = path.resolve(cwd);
+            const normResolved = path.resolve(resolved);
+            return normResolved.startsWith(normCwd + path.sep) || normResolved === normCwd;
+        }
+        if (name === 'delete_file') {
+            const filePath = path.resolve(process.cwd(), args.path);
+            if (!ensureWithinCwd(filePath)) {
+                return `Error: Path "${args.path}" is outside the project directory. Refused for safety.`;
+            }
+            if (!fs.existsSync(filePath)) {
+                return `Error: File not found: ${args.path}`;
+            }
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+                return `Error: ${args.path} is a directory. Use delete_directory to remove it.`;
+            }
+            fs.unlinkSync(filePath);
+            console.log(chalk.blue.bold(`\n🗑️ Removido: ${path.relative(process.cwd(), filePath)}\n`));
+            return `Successfully deleted ${args.path}`;
+        }
+        if (name === 'delete_directory') {
+            const dirPath = path.resolve(process.cwd(), args.path);
+            if (!ensureWithinCwd(dirPath)) {
+                return `Error: Path "${args.path}" is outside the project directory. Refused for safety.`;
+            }
+            if (!fs.existsSync(dirPath)) {
+                return `Error: Directory not found: ${args.path}`;
+            }
+            const stat = fs.statSync(dirPath);
+            if (!stat.isDirectory()) {
+                return `Error: ${args.path} is not a directory. Use delete_file to remove it.`;
+            }
+            fs.rmSync(dirPath, { recursive: true });
+            console.log(chalk.blue.bold(`\n🗑️ Pasta removida: ${path.relative(process.cwd(), dirPath)}\n`));
+            return `Successfully deleted directory ${args.path}`;
         }
         return `Unknown tool: ${name}`;
     }
