@@ -124,7 +124,7 @@ async function showMenu() {
     }
 }
 async function handleModelsMenu(providerFilter) {
-    const { config, getEffectiveActiveModel, PROVIDER_LABELS, ALL_PROVIDERS } = await import('../config.js');
+    const { config, getEffectiveActiveModel, PROVIDER_LABELS, ALL_PROVIDERS, getOllamaCloudApiKey } = await import('../config.js');
     let allModels = config.get('registeredModels');
     if (!Array.isArray(allModels)) {
         const defaults = [
@@ -157,8 +157,20 @@ async function handleModelsMenu(providerFilter) {
             return handleAddModelsMenu();
         return handleModelsMenu(cat.category);
     }
-    // Segunda tela: listar modelos da categoria escolhida
-    const providerModels = allModels.filter((m) => m.provider === providerFilter);
+    // Segunda tela: listar modelos da categoria escolhida — sincroniza da API se a lista estiver vazia e houver credencial (ou API pública OpenRouter)
+    let providerModels = allModels.filter((m) => m.provider === providerFilter);
+    if (providerModels.length === 0 && providerFilter === 'openrouter') {
+        const { modelsCommand } = await import('../commands/models.js');
+        await modelsCommand.handler({ action: 'fetch-openrouter' });
+        allModels = config.get('registeredModels');
+        providerModels = allModels.filter((m) => m.provider === providerFilter);
+    }
+    if (providerModels.length === 0 && providerFilter === 'ollama-cloud' && getOllamaCloudApiKey()) {
+        const { modelsCommand } = await import('../commands/models.js');
+        await modelsCommand.handler({ action: 'fetch-ollama-cloud' });
+        allModels = config.get('registeredModels');
+        providerModels = allModels.filter((m) => m.provider === providerFilter);
+    }
     const label = PROVIDER_LABELS[providerFilter] || providerFilter;
     const choices = [
         ...providerModels.map((m, i) => ({

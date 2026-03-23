@@ -41,6 +41,8 @@ interface AppConfig {
     /** Só compra de token / checkout — Vercel */
     tokenPurchaseBaseUrl: string;
     poktToken: string;
+    /** ID estável por instalação (telemetria de uso no Back) */
+    cliInstallId: string;
     registeredModels: ModelConfig[];
     activeModel: ModelConfig | null;
     mcpServers: McpServerConfig[];
@@ -54,6 +56,7 @@ export declare const env: {
     readonly ollamaBaseUrl: readonly ["OLLAMA_BASE_URL"];
     readonly ollamaCloudApiKey: readonly ["OLLAMA_CLOUD_API_KEY"];
     readonly poktToken: readonly ["POKT_TOKEN"];
+    readonly disableTelemetry: readonly ["POKT_DISABLE_TELEMETRY"];
     readonly poktApiBaseUrl: readonly ["POKT_API_BASE_URL"];
     /** Painel e URLs gerais (Railway) */
     readonly proPortalUrl: readonly ["POKT_PRO_PORTAL_URL", "POKT_CONTROLLER_PORTAL_URL"];
@@ -67,6 +70,11 @@ export declare function getGeminiApiKey(): string;
 export declare function getOllamaBaseUrl(): string;
 export declare function getOllamaCloudApiKey(): string;
 export declare function getPoktToken(): string;
+/** UUID persistente por máquina/instalação (identifica uso no painel quando não há token Pokt). */
+export declare function getOrCreateCliInstallId(): string;
+/** Nome do PC (sanitizado) para exibição no log de uso. */
+export declare function getCliHostLabel(): string;
+export declare function isCliTelemetryDisabled(): boolean;
 /** Base da API só para provider `controller` (Bearer Pokt). OpenAI direto usa outro ramo no getClient. */
 export declare function getPoktApiBaseUrl(): string;
 /** Painel e links gerais (Railway), exceto compra de token — ver getTokenPurchaseUrl(). */
@@ -77,6 +85,8 @@ export declare function getTokenPurchaseUrl(): string;
 export declare const getControllerBaseUrl: typeof getPoktApiBaseUrl;
 /** URL aberta por `pokt pro` (comprar token) — Vercel por padrão. */
 export declare const getProPurchaseUrl: () => string;
-/** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
+/** True se o modelo pode ser usado com as credenciais atuais (evita ficar preso em controller sem token Pokt). */
+export declare function isModelCredentialReady(model: ModelConfig): boolean;
+/** Prioridade: modelo ativo explícito (se credenciais OK) → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export declare function getEffectiveActiveModel(): ModelConfig | null;
 export {};

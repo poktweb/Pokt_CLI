@@ -1,13 +1,12 @@
 import type * as Yargs from 'yargs';
 import {
-  config,
   getEffectiveActiveModel,
   getOpenAIApiKey,
   getGrokApiKey,
   getOpenRouterToken,
   getGeminiApiKey,
+  getOllamaCloudApiKey,
   getPoktToken,
-  getProPortalBaseUrl,
 } from '../config.js';
 import chalk from 'chalk';
 import { startChatLoop } from '../chat/loop.js';
@@ -44,12 +43,15 @@ export const chatCommand: Yargs.CommandModule = {
       return;
     }
 
+    if (activeModel.provider === 'ollama-cloud' && !getOllamaCloudApiKey()) {
+      console.log(ui.error('Ollama Cloud API key not set. Use: pokt config set-ollama-cloud -v <key>'));
+      return;
+    }
+
     if (activeModel.provider === 'controller') {
       if (!getPoktToken()) {
         console.log(
-          ui.error(
-            `Pokt token not set. Painel: ${getProPortalBaseUrl()} — pokt config set-pokt-token -v <token>`
-          )
+          ui.error('Pokt token not set. Use: pokt config set-pokt-token -v <token>')
         );
         return;
       }

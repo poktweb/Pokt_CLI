@@ -2,7 +2,6 @@ import OpenAI from 'openai';
 import {
   ModelConfig,
   getPoktApiBaseUrl,
-  getProPortalBaseUrl,
   getOpenAIApiKey,
   getGrokApiKey,
   getOpenRouterToken,
@@ -18,9 +17,7 @@ export async function getClient(modelConfig: ModelConfig): Promise<InstanceType<
     const baseUrl = getPoktApiBaseUrl();
     const token = getPoktToken();
     if (!token) {
-      throw new Error(
-        `Token Pokt não configurado. Painel: ${getProPortalBaseUrl()} — pokt config set-pokt-token -v <token>`
-      );
+      throw new Error('Token Pokt não configurado. Use: pokt config set-pokt-token -v <token>');
     }
     return new OpenAI({
       baseURL: `${baseUrl}/api/v1`,

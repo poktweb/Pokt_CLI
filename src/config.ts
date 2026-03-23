@@ -1,4 +1,6 @@
 import Conf from 'conf';
+import { randomUUID } from 'crypto';
+import os from 'os';
 
 export type Provider =
   | 'openai'
@@ -84,6 +86,8 @@ interface AppConfig {
   /** Só compra de token / checkout — Vercel */
   tokenPurchaseBaseUrl: string;
   poktToken: string;
+  /** ID estável por instalação (telemetria de uso no Back) */
+  cliInstallId: string;
   registeredModels: ModelConfig[];
   activeModel: ModelConfig | null;
   mcpServers: McpServerConfig[];
@@ -102,6 +106,7 @@ export const config = new Conf<AppConfig>({
     poktApiBaseUrl: DEFAULT_POKT_SERVICE_BASE_URL,
     tokenPurchaseBaseUrl: DEFAULT_TOKEN_PURCHASE_BASE_URL,
     poktToken: '',
+    cliInstallId: '',
     registeredModels: [
       { provider: 'controller', id: 'default' },
       { provider: 'openai', id: 'gpt-4o-mini' },
@@ -132,6 +137,7 @@ export const env = {
   ollamaBaseUrl: ['OLLAMA_BASE_URL'] as const,
   ollamaCloudApiKey: ['OLLAMA_CLOUD_API_KEY'] as const,
   poktToken: ['POKT_TOKEN'] as const,
+  disableTelemetry: ['POKT_DISABLE_TELEMETRY'] as const,
   poktApiBaseUrl: ['POKT_API_BASE_URL'] as const,
   /** Painel e URLs gerais (Railway) */
   proPortalUrl: ['POKT_PRO_PORTAL_URL', 'POKT_CONTROLLER_PORTAL_URL'] as const,
@@ -179,6 +185,31 @@ export function getPoktToken(): string {
   return readEnvFirst(env.poktToken) || config.get('poktToken') || '';
 }
 
+/** UUID persistente por máquina/instalação (identifica uso no painel quando não há token Pokt). */
+export function getOrCreateCliInstallId(): string {
+  let id = config.get('cliInstallId');
+  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
+    id = randomUUID();
+    config.set('cliInstallId', id);
+  }
+  return id;
+}
+
+/** Nome do PC (sanitizado) para exibição no log de uso. */
+export function getCliHostLabel(): string {
+  try {
+    const h = os.hostname().replace(/[^\w.-]+/g, '_').slice(0, 120);
+    return h || 'PC';
+  } catch {
+    return 'PC';
+  }
+}
+
+export function isCliTelemetryDisabled(): boolean {
+  const v = readEnvFirst(env.disableTelemetry);
+  return v === '1' || v.toLowerCase() === 'true' || v.toLowerCase() === 'yes';
+}
+
 /** Base da API só para provider `controller` (Bearer Pokt). OpenAI direto usa outro ramo no getClient. */
 export function getPoktApiBaseUrl(): string {
   const fromEnv = readEnvFirst(env.poktApiBaseUrl);
@@ -206,10 +237,32 @@ export const getControllerBaseUrl = getPoktApiBaseUrl;
 /** URL aberta por `pokt pro` (comprar token) — Vercel por padrão. */
 export const getProPurchaseUrl = (): string => getTokenPurchaseUrl();
 
-/** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
+/** True se o modelo pode ser usado com as credenciais atuais (evita ficar preso em controller sem token Pokt). */
+export function isModelCredentialReady(model: ModelConfig): boolean {
+  switch (model.provider) {
+    case 'controller':
+      return !!getPoktToken();
+    case 'openai':
+      return !!getOpenAIApiKey();
+    case 'grok':
+      return !!getGrokApiKey();
+    case 'openrouter':
+      return !!getOpenRouterToken();
+    case 'gemini':
+      return !!getGeminiApiKey();
+    case 'ollama-cloud':
+      return !!getOllamaCloudApiKey();
+    case 'ollama':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Prioridade: modelo ativo explícito (se credenciais OK) → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export function getEffectiveActiveModel(): ModelConfig | null {
   const explicit = config.get('activeModel');
-  if (explicit) return explicit;
+  if (explicit && isModelCredentialReady(explicit)) return explicit;
 
   const models = config.get('registeredModels');
   if (getPoktToken()) {
@@ -239,5 +292,6 @@ export function getEffectiveActiveModel(): ModelConfig | null {
   const ollama = models.find((m: ModelConfig) => m.provider === 'ollama');
   if (ollama) return ollama;
 
-  return models[0] ?? null;
+  const anyUsable = models.find((m: ModelConfig) => isModelCredentialReady(m));
+  return anyUsable ?? null;
 }

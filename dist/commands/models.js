@@ -1,4 +1,4 @@
-import { config, getEffectiveActiveModel, PROVIDER_LABELS, getOpenAIApiKey, getGrokApiKey } from '../config.js';
+import { config, getEffectiveActiveModel, PROVIDER_LABELS, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getOllamaCloudApiKey } from '../config.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import { ui } from '../ui.js';
@@ -101,7 +101,10 @@ export const modelsCommand = {
         if (action === 'fetch-openrouter') {
             const spinner = ora('Fetching OpenRouter models...').start();
             try {
-                const response = await fetch('https://openrouter.ai/api/v1/models');
+                const orToken = getOpenRouterToken();
+                const response = await fetch('https://openrouter.ai/api/v1/models', {
+                    headers: orToken ? { Authorization: `Bearer ${orToken}` } : undefined,
+                });
                 if (!response.ok) {
                     spinner.fail(ui.error(`Failed to fetch OpenRouter models: HTTP ${response.status}`));
                     const body = await response.text();
@@ -149,7 +152,7 @@ export const modelsCommand = {
             return;
         }
         if (action === 'fetch-ollama-cloud') {
-            const apiKey = config.get('ollamaCloudApiKey');
+            const apiKey = getOllamaCloudApiKey();
             if (!apiKey) {
                 console.log(ui.error('Ollama Cloud API key not set. Run: pokt config set-ollama-cloud -v <key>'));
                 console.log(ui.dim('Create keys at: https://ollama.com/settings/keys'));

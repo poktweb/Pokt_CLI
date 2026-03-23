@@ -22,6 +22,12 @@ import {
   tryAutoMcpForListDatabases,
 } from './mcp-from-text.js';
 import { slimToolsForUpstreamPayload } from './slim-tools.js';
+import {
+  emptyUsageAccumulator,
+  mergeCompletionUsage,
+  sendCliUsageTelemetryFireAndForget,
+  type ChatUsageAccumulator,
+} from './telemetry.js';
 import OpenAI from 'openai';
 import type {
   ChatCompletionTool,
@@ -455,7 +461,7 @@ Atalhos:
       });
     }
 
-    await processLLMResponse(client, activeModel.id, messages, toolsForApi, sessionFileCtx);
+    await processLLMResponse(client, activeModel, messages, toolsForApi, sessionFileCtx);
     // Atualiza auto-save após resposta
     saveAuto(messages);
     // Captura última resposta do assistente para /copy (melhor esforço)
@@ -789,17 +795,20 @@ async function createCompletionWithRetry(
   modelId: string,
   messages: ChatCompletionMessageParam[],
   toolsList: ChatCompletionTool[],
-  toolChoice: 'auto' | 'required' | 'none' = 'auto'
+  toolChoice: 'auto' | 'required' | 'none' = 'auto',
+  usageAcc?: ChatUsageAccumulator
 ): Promise<ChatCompletion> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await client.chat.completions.create({
+      const out = await client.chat.completions.create({
         model: modelId,
         messages,
         tools: toolsList,
         tool_choice: toolChoice,
       });
+      if (usageAcc) mergeCompletionUsage(usageAcc, out);
+      return out;
     } catch (err: any) {
       lastError = err;
       const retryable = isRetryable(err);
@@ -824,7 +833,8 @@ async function drainToolCalls(
   toolsList: ChatCompletionTool[],
   startMessage: ChatCompletionAssistantMessage,
   spinner: ReturnType<typeof ora>,
-  sessionFileCtx: SessionFileToolContext
+  sessionFileCtx: SessionFileToolContext,
+  usageAcc?: ChatUsageAccumulator
 ): Promise<{
   message: ChatCompletionAssistantMessage;
   writeFileExecuted: boolean;
@@ -871,7 +881,7 @@ async function drainToolCalls(
     }
 
     spinner.start('Thinking...');
-    const completion = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto');
+    const completion = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto', usageAcc);
     spinner.stop();
     const nextMsg = getFirstChoiceMessage(completion);
     if (!nextMsg) {
@@ -882,30 +892,55 @@ async function drainToolCalls(
   return { message, writeFileExecuted, anyToolExecuted, mcpToolExecuted };
 }
 
+function emitCliTelemetryForTurn(modelConfig: ModelConfig, acc: ChatUsageAccumulator): void {
+  const total = acc.prompt + acc.completion;
+  if (total <= 0) return;
+  sendCliUsageTelemetryFireAndForget({
+    provider: modelConfig.provider,
+    model: modelConfig.id,
+    promptTokens: acc.prompt,
+    completionTokens: acc.completion,
+    totalTokens: total,
+    cost: acc.cost,
+  });
+}
+
 async function processLLMResponse(
   client: InstanceType<typeof OpenAI>,
-  modelId: string,
+  modelConfig: ModelConfig,
   messages: ChatCompletionMessageParam[],
   toolsList: ChatCompletionTool[],
   sessionFileCtx: SessionFileToolContext
 ) {
   const spinner = ora('Thinking...').start();
+  const modelId = modelConfig.id;
+  const usageAcc = emptyUsageAccumulator();
 
   try {
-    let completion = await createCompletionWithRetry(client, modelId, messages, toolsList);
+    let completion = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto', usageAcc);
 
     const first = getFirstChoiceMessage(completion);
     if (!first) {
       spinner.stop();
       console.log(ui.error('\nResposta da API sem choices/mensagem. Tente novamente ou outro modelo.'));
       messages.pop();
+      emitCliTelemetryForTurn(modelConfig, usageAcc);
       return;
     }
 
     let message = first;
     spinner.stop();
 
-    const drained = await drainToolCalls(client, modelId, messages, toolsList, message, spinner, sessionFileCtx);
+    const drained = await drainToolCalls(
+      client,
+      modelId,
+      messages,
+      toolsList,
+      message,
+      spinner,
+      sessionFileCtx,
+      usageAcc
+    );
     message = drained.message;
     let writeFileExecutedThisTurn = drained.writeFileExecuted;
     let anyToolExecutedThisTurn = drained.anyToolExecuted;
@@ -958,9 +993,9 @@ async function processLLMResponse(
       spinner.start('Recuperando resposta vazia…');
       let recovery: ChatCompletion;
       try {
-        recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'required');
+        recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'required', usageAcc);
       } catch {
-        recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto');
+        recovery = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto', usageAcc);
       }
       spinner.stop();
 
@@ -968,6 +1003,7 @@ async function processLLMResponse(
       if (!recoveryFirst) {
         console.log(ui.error('\nResposta da API sem choices na recuperação. Tente outro modelo.'));
         messages.pop();
+        emitCliTelemetryForTurn(modelConfig, usageAcc);
         return;
       }
       const drained2 = await drainToolCalls(
@@ -977,7 +1013,8 @@ async function processLLMResponse(
         toolsList,
         recoveryFirst,
         spinner,
-        sessionFileCtx
+        sessionFileCtx,
+        usageAcc
       );
       message = drained2.message;
       writeFileExecutedThisTurn = writeFileExecutedThisTurn || drained2.writeFileExecuted;
@@ -1033,7 +1070,7 @@ async function processLLMResponse(
         const followUpSystem = `You replied as if tools would run in text only. Use tool_calls for read_file/search_replace/write_file/run_command/delete_directory/delete_file/mcp_* when possible. Prefer search_replace for edits. For Next.js app/pages conflict: call delete_directory("app"). If you must output a file as markdown only: mention the filename then a full \`\`\`lang\`\`\` block — never use fake shell lines like mcp_Foo_bar. Do that now for the user's last request.`;
         messages.push({ role: 'system', content: followUpSystem });
         spinner.start('Getting code...');
-        const followUp = await createCompletionWithRetry(client, modelId, messages, toolsList);
+        const followUp = await createCompletionWithRetry(client, modelId, messages, toolsList, 'auto', usageAcc);
         spinner.stop();
         const followUpMsg = getFirstChoiceMessage(followUp);
         if (!followUpMsg) {
@@ -1081,8 +1118,11 @@ async function processLLMResponse(
         messages.push({ role: 'assistant', content: '' });
       }
     }
+
+    emitCliTelemetryForTurn(modelConfig, usageAcc);
   } catch (error: any) {
     spinner.stop();
+    emitCliTelemetryForTurn(modelConfig, usageAcc);
     const status = getStatusCode(error);
     if (status === 429) {
       console.log(ui.error('\nLimite de taxa (429). O provedor está te limitando por volume ou quota.'));

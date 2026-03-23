@@ -1,4 +1,6 @@
 import Conf from 'conf';
+import { randomUUID } from 'crypto';
+import os from 'os';
 export const PROVIDER_LABELS = {
     controller: 'Pokt API (Controller)',
     openai: 'OpenAI',
@@ -41,6 +43,7 @@ export const config = new Conf({
         poktApiBaseUrl: DEFAULT_POKT_SERVICE_BASE_URL,
         tokenPurchaseBaseUrl: DEFAULT_TOKEN_PURCHASE_BASE_URL,
         poktToken: '',
+        cliInstallId: '',
         registeredModels: [
             { provider: 'controller', id: 'default' },
             { provider: 'openai', id: 'gpt-4o-mini' },
@@ -70,6 +73,7 @@ export const env = {
     ollamaBaseUrl: ['OLLAMA_BASE_URL'],
     ollamaCloudApiKey: ['OLLAMA_CLOUD_API_KEY'],
     poktToken: ['POKT_TOKEN'],
+    disableTelemetry: ['POKT_DISABLE_TELEMETRY'],
     poktApiBaseUrl: ['POKT_API_BASE_URL'],
     /** Painel e URLs gerais (Railway) */
     proPortalUrl: ['POKT_PRO_PORTAL_URL', 'POKT_CONTROLLER_PORTAL_URL'],
@@ -113,6 +117,29 @@ export function getOllamaCloudApiKey() {
 export function getPoktToken() {
     return readEnvFirst(env.poktToken) || config.get('poktToken') || '';
 }
+/** UUID persistente por máquina/instalação (identifica uso no painel quando não há token Pokt). */
+export function getOrCreateCliInstallId() {
+    let id = config.get('cliInstallId');
+    if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
+        id = randomUUID();
+        config.set('cliInstallId', id);
+    }
+    return id;
+}
+/** Nome do PC (sanitizado) para exibição no log de uso. */
+export function getCliHostLabel() {
+    try {
+        const h = os.hostname().replace(/[^\w.-]+/g, '_').slice(0, 120);
+        return h || 'PC';
+    }
+    catch {
+        return 'PC';
+    }
+}
+export function isCliTelemetryDisabled() {
+    const v = readEnvFirst(env.disableTelemetry);
+    return v === '1' || v.toLowerCase() === 'true' || v.toLowerCase() === 'yes';
+}
 /** Base da API só para provider `controller` (Bearer Pokt). OpenAI direto usa outro ramo no getClient. */
 export function getPoktApiBaseUrl() {
     const fromEnv = readEnvFirst(env.poktApiBaseUrl);
@@ -135,10 +162,31 @@ export function getTokenPurchaseUrl() {
 export const getControllerBaseUrl = getPoktApiBaseUrl;
 /** URL aberta por `pokt pro` (comprar token) — Vercel por padrão. */
 export const getProPurchaseUrl = () => getTokenPurchaseUrl();
-/** Prioridade: modelo ativo explícito → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
+/** True se o modelo pode ser usado com as credenciais atuais (evita ficar preso em controller sem token Pokt). */
+export function isModelCredentialReady(model) {
+    switch (model.provider) {
+        case 'controller':
+            return !!getPoktToken();
+        case 'openai':
+            return !!getOpenAIApiKey();
+        case 'grok':
+            return !!getGrokApiKey();
+        case 'openrouter':
+            return !!getOpenRouterToken();
+        case 'gemini':
+            return !!getGeminiApiKey();
+        case 'ollama-cloud':
+            return !!getOllamaCloudApiKey();
+        case 'ollama':
+            return true;
+        default:
+            return false;
+    }
+}
+/** Prioridade: modelo ativo explícito (se credenciais OK) → Pokt (controller) se token setado → OpenRouter → Gemini → Ollama Cloud → Ollama local */
 export function getEffectiveActiveModel() {
     const explicit = config.get('activeModel');
-    if (explicit)
+    if (explicit && isModelCredentialReady(explicit))
         return explicit;
     const models = config.get('registeredModels');
     if (getPoktToken()) {
@@ -174,5 +222,6 @@ export function getEffectiveActiveModel() {
     const ollama = models.find((m) => m.provider === 'ollama');
     if (ollama)
         return ollama;
-    return models[0] ?? null;
+    const anyUsable = models.find((m) => isModelCredentialReady(m));
+    return anyUsable ?? null;
 }

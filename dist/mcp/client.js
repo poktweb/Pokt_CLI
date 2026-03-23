@@ -77,7 +77,7 @@ async function connectMcpStdio(serverConfig) {
         args: serverConfig.args ?? [],
         env: mergeProcessEnv(serverConfig.env),
     });
-    const client = new Client({ name: 'pokt-cli', version: '1.0.8' });
+    const client = new Client({ name: 'pokt-cli', version: '1.0.13' });
     await client.connect(transport);
     const tools = await buildToolsFromClient(serverConfig, client);
     return pushSession(serverConfig, client, tools, transport);
@@ -112,7 +112,7 @@ async function connectMcpHttp(serverConfig) {
             }
             return makeStreamableTransport(url, { authProvider, headers });
         };
-        const client = new Client({ name: 'pokt-cli', version: '1.0.8' });
+        const client = new Client({ name: 'pokt-cli', version: '1.0.13' });
         let transport = await makeTransport();
         const cleanupCb = async () => {
             try {
@@ -151,7 +151,7 @@ async function connectMcpHttp(serverConfig) {
     const transport = useSse
         ? await makeSseTransport(url, { headers })
         : await makeStreamableTransport(url, { headers });
-    const client = new Client({ name: 'pokt-cli', version: '1.0.8' });
+    const client = new Client({ name: 'pokt-cli', version: '1.0.13' });
     await client.connect(transport);
     const tools = await buildToolsFromClient(serverConfig, client);
     return pushSession(serverConfig, client, tools, transport);

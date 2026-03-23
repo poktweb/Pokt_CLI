@@ -1,12 +1,12 @@
 import OpenAI from 'openai';
-import { getPoktApiBaseUrl, getProPortalBaseUrl, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaCloudApiKey, getOllamaBaseUrl, getPoktToken, } from '../config.js';
+import { getPoktApiBaseUrl, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaCloudApiKey, getOllamaBaseUrl, getPoktToken, } from '../config.js';
 export async function getClient(modelConfig) {
     // openai / grok / … → hosts oficiais abaixo. Só `controller` usa getPoktApiBaseUrl (token Pokt, não é api.openai.com).
     if (modelConfig.provider === 'controller') {
         const baseUrl = getPoktApiBaseUrl();
         const token = getPoktToken();
         if (!token) {
-            throw new Error(`Token Pokt não configurado. Painel: ${getProPortalBaseUrl()} — pokt config set-pokt-token -v <token>`);
+            throw new Error('Token Pokt não configurado. Use: pokt config set-pokt-token -v <token>');
         }
         return new OpenAI({
             baseURL: `${baseUrl}/api/v1`,

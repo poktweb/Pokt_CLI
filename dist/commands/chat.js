@@ -1,4 +1,4 @@
-import { getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getPoktToken, getProPortalBaseUrl, } from '../config.js';
+import { getEffectiveActiveModel, getOpenAIApiKey, getGrokApiKey, getOpenRouterToken, getGeminiApiKey, getOllamaCloudApiKey, getPoktToken, } from '../config.js';
 import { startChatLoop } from '../chat/loop.js';
 import { ui } from '../ui.js';
 export const chatCommand = {
@@ -27,9 +27,13 @@ export const chatCommand = {
             console.log(ui.error('Gemini API key not set. Use: pokt config set-gemini -v <key>'));
             return;
         }
+        if (activeModel.provider === 'ollama-cloud' && !getOllamaCloudApiKey()) {
+            console.log(ui.error('Ollama Cloud API key not set. Use: pokt config set-ollama-cloud -v <key>'));
+            return;
+        }
         if (activeModel.provider === 'controller') {
             if (!getPoktToken()) {
-                console.log(ui.error(`Pokt token not set. Painel: ${getProPortalBaseUrl()} — pokt config set-pokt-token -v <token>`));
+                console.log(ui.error('Pokt token not set. Use: pokt config set-pokt-token -v <token>'));
                 return;
             }
         }
